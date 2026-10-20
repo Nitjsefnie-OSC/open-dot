@@ -7,6 +7,9 @@
     "open-dot": "./src/cli.ts"
   },
   "type": "module",
+  "exports": {
+    "./tui": "./src/tui.ts"
+  },
   "scripts": {
     "check": "vp check",
     "lint": "vp lint",
