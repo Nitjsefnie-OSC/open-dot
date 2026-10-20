@@ -8,8 +8,8 @@
   },
   "type": "module",
   "exports": {
-    ".": "./src/plugin.ts",
-    "./tui": "./src/tui.ts"
+    ".": "./server.ts",
+    "./tui": "./tui.ts"
   },
   "scripts": {
     "check": "vp check",

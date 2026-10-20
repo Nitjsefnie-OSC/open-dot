@@ -17,5 +17,5 @@
     "skipLibCheck": true,
     "noEmit": true
   },
-  "include": ["src", "test", "vite.config.ts", "drizzle.config.ts"]
+  "include": ["server.ts", "tui.ts", "src", "test", "vite.config.ts", "drizzle.config.ts"]
 }
