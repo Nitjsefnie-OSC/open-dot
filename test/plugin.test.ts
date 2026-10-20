@@ -13,7 +13,11 @@ interface FakeTool {
   readonly name: string;
   readonly execute: (input: unknown) => Promise<{ readonly content?: unknown }>;
 }
-type ContextHook = (event: { sessionID: string; system: { text: string }[] }) => void;
+interface FakeMessage {
+  readonly role: string;
+  readonly content: { readonly text: string }[];
+}
+type ContextHook = (event: { sessionID: string; messages: FakeMessage[] }) => void;
 
 const fails = (promise: Promise<unknown>) =>
   promise.then(
@@ -46,31 +50,37 @@ async function load(directory: string) {
     },
   } as unknown as Plugin.Context;
   const cleanup = await plugin.setup(context);
-  const system = (sessionID: string) => {
-    const event = { sessionID, system: [] as { text: string }[] };
+  /** Runs a request with one user prompt and returns what the hook added before it. */
+  const injected = (sessionID: string) => {
+    const prompt = { role: "user", content: [{ text: "Hi" }] };
+    const event = { sessionID, messages: [prompt] };
     hook?.(event);
-    return event.system.map((part) => part.text).join("\n");
+    expect(event.messages.at(-1)).toBe(prompt);
+    return event.messages
+      .slice(0, -1)
+      .flatMap((message) => message.content.map((part) => part.text))
+      .join("\n");
   };
   const call = (name: string, input: unknown) => {
     const tool = tools.get(name);
     if (!tool) throw new Error(`missing tool ${name}`);
     return tool.execute(input);
   };
-  return { tools, system, call, cleanup };
+  return { tools, injected, call, cleanup };
 }
 
 test("other locations get no tools and no memory", async () => {
   const loaded = await load("/somewhere/else");
   expect(loaded.tools.size).toBe(0);
-  expect(loaded.system(dot.sessionID)).toBe("");
+  expect(loaded.injected(dot.sessionID)).toBe("");
 });
 
 test("a saved note appears in the dot's own context and nowhere else", async () => {
   const loaded = await load(dot.directory);
   await loaded.call("dot_note", { text: "Prefers short answers." });
 
-  expect(loaded.system(dot.sessionID)).toContain("Prefers short answers.");
-  expect(loaded.system("ses_someone_else")).toBe("");
+  expect(loaded.injected(dot.sessionID)).toContain("Prefers short answers.");
+  expect(loaded.injected("ses_someone_else")).toBe("");
   await loaded.cleanup?.();
 });
 
@@ -85,6 +95,6 @@ test("a reminder needs a future time with a UTC offset", async () => {
   );
   await loaded.call("dot_remind", { text: "Stretch.", at: "2099-01-01T09:00:00+08:00" });
 
-  expect(loaded.system(dot.sessionID)).toContain("Stretch.");
+  expect(loaded.injected(dot.sessionID)).toContain("Stretch.");
   await loaded.cleanup?.();
 });

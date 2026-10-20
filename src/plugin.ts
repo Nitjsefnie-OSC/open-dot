@@ -29,7 +29,8 @@ function memory(db: Db, dot: string) {
     .where(and(eq(reminders.dot, dot), eq(reminders.state, "scheduled")))
     .orderBy(asc(reminders.dueAt))
     .all();
-  return `# open-dot memory
+  return `<system-reminder>
+# open-dot memory, as of now (replaces any earlier memory in this conversation)
 
 Current time: ${new Date().toString()}
 
@@ -37,7 +38,8 @@ Current time: ${new Date().toString()}
 ${list(saved.map((note) => `- #${note.id}: ${note.text}`))}
 
 ## Scheduled reminders (dot_remind schedules, dot_cancel cancels)
-${list(scheduled.map((reminder) => `- #${reminder.id} at ${new Date(reminder.dueAt).toString()}: ${reminder.text}`))}`;
+${list(scheduled.map((reminder) => `- #${reminder.id} at ${new Date(reminder.dueAt).toString()}: ${reminder.text}`))}
+</system-reminder>`;
 }
 
 /** Gives a dot's own location its reminder and note tools, and its memory each turn. */
@@ -132,9 +134,16 @@ export default Plugin.define({
       });
     });
 
+    // Memory goes near the tail on each request, like OpenCode's own reminders. In the system
+    // prompt, the dot kept answering from its first turn's memory, and every change busted the cache.
     await context.session.hook("context", (event) => {
       if (event.sessionID !== dot.sessionID) return;
-      event.system.push({ type: "text", text: memory(db, name) });
+      const at =
+        event.messages.at(-1)?.role === "user" ? event.messages.length - 1 : event.messages.length;
+      event.messages.splice(at, 0, {
+        role: "user",
+        content: [{ type: "text", text: memory(db, name) }],
+      });
     });
 
     return () => db.$client.close();
