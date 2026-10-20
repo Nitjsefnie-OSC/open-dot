@@ -1,7 +1,8 @@
 import { Database } from "bun:sqlite";
 import { Plugin } from "@opencode/plugin/tui";
-import type { MouseEvent, RGBA } from "@opentui/core";
+import type { MouseEvent } from "@opentui/core";
 import { jsx } from "@opentui/solid/jsx-runtime";
+import { createSignal } from "solid-js";
 import { databasePath } from "./home";
 
 interface DotEntry {
@@ -48,6 +49,29 @@ const short = (task: string) => {
   const line = task.trim().split("\n")[0] ?? "";
   return line.length > 28 ? `${line.slice(0, 27)}…` : line;
 };
+
+interface Line {
+  readonly content: string;
+  readonly worker: boolean;
+  readonly target: DotEntry;
+}
+
+/** Each dot, followed by its workers. */
+function readSidebar(): Line[] {
+  const workers = readWorkers();
+  return readDots().flatMap((dot) => [
+    { content: `● ${dot.name}`, worker: false, target: dot },
+    ...workers
+      .filter((worker) => worker.dot === dot.name)
+      .map((worker) => ({
+        content: `  ↳ #${worker.id} ${short(worker.task)} · ${worker.status}`,
+        worker: true,
+        target: { name: `${dot.name} worker #${worker.id}`, sessionID: worker.sessionID },
+      })),
+  ]);
+}
+
+const same = (a: Line[], b: Line[]) => JSON.stringify(a) === JSON.stringify(b);
 
 export default Plugin.define({
   id: "open-dot.tui",
@@ -96,38 +120,32 @@ export default Plugin.define({
       ],
     }));
 
-    const link = (content: string, fg: RGBA, target: DotEntry) =>
-      jsx("text", {
-        content,
-        fg,
-        selectable: false,
-        onMouseUp(event: MouseEvent) {
-          if (event.button === 0) void open(target);
-        },
-      });
+    // The daemon updates workers from another process, so the sidebar rereads the DB.
+    const [rows, setRows] = createSignal(readSidebar(), { equals: same });
+    const refresh = setInterval(() => setRows(readSidebar()), 2000);
 
     const sidebar = context.ui.slot({
       prepend: "sidebar.content",
-      render: () => {
-        const workers = readWorkers();
-        return jsx("box", {
+      render: () =>
+        jsx("box", {
           flexDirection: "column",
-          children: readDots().flatMap((dot) => [
-            link(`● ${dot.name}`, context.theme.text.base, dot),
-            ...workers
-              .filter((worker) => worker.dot === dot.name)
-              .map((worker) =>
-                link(
-                  `  ↳ #${worker.id} ${short(worker.task)} · ${worker.status}`,
-                  context.theme.text.muted,
-                  { name: `${dot.name} worker #${worker.id}`, sessionID: worker.sessionID },
-                ),
-              ),
-          ]),
-        });
-      },
+          children: () =>
+            rows().map((row) =>
+              jsx("text", {
+                content: row.content,
+                fg: row.worker ? context.theme.text.muted : context.theme.text.base,
+                selectable: false,
+                onMouseUp(event: MouseEvent) {
+                  if (event.button === 0) void open(row.target);
+                },
+              }),
+            ),
+        }),
     });
 
-    return sidebar;
+    return () => {
+      clearInterval(refresh);
+      sidebar();
+    };
   },
 });
