@@ -15,6 +15,8 @@ export default defineConfig({
       "import/no-duplicates": "error",
       "eslint/no-unused-vars": ["error", { argsIgnorePattern: "^_", varsIgnorePattern: "^_" }],
     },
+    // Test fakes stand in for only the parts of OpenCode's APIs the code under test uses.
+    overrides: [{ files: ["test/**"], rules: { "typescript/no-unsafe-type-assertion": "off" } }],
   },
   fmt: {
     ignorePatterns: ["drizzle/**"],

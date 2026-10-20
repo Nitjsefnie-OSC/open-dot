@@ -8,6 +8,7 @@
   },
   "type": "module",
   "exports": {
+    ".": "./src/plugin.ts",
     "./tui": "./src/tui.ts"
   },
   "scripts": {
