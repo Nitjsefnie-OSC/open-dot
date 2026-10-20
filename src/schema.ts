@@ -42,3 +42,16 @@ export const notes = sqliteTable("notes", {
   text: text().notNull(),
   createdAt: integer("created_at").notNull(),
 });
+
+/** Ongoing goals a dot owns, with the next thing it plans to do about each. */
+export const responsibilities = sqliteTable("responsibilities", {
+  id: integer().primaryKey({ autoIncrement: true }),
+  dot: text()
+    .notNull()
+    .references(() => dots.name),
+  goal: text().notNull(),
+  nextAction: text("next_action").notNull(),
+  status: text({ enum: ["active", "done", "dropped"] }).notNull(),
+  createdAt: integer("created_at").notNull(),
+  updatedAt: integer("updated_at").notNull(),
+});

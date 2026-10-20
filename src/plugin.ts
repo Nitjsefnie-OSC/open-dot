@@ -4,7 +4,7 @@ import { and, asc, eq } from "drizzle-orm";
 import { Schema } from "effect";
 import { type Db, openDatabase } from "./db";
 import { databasePath } from "./home";
-import { dots, notes, reminders } from "./schema";
+import { dots, notes, reminders, responsibilities } from "./schema";
 
 const text = (description: string) => Schema.String.annotate({ description });
 const id = (description: string) => Schema.Int.annotate({ description });
@@ -33,6 +33,12 @@ function memory(db: Db, dot: string) {
     .where(and(eq(reminders.dot, dot), eq(reminders.state, "scheduled")))
     .orderBy(asc(reminders.dueAt))
     .all();
+  const active = db
+    .select()
+    .from(responsibilities)
+    .where(and(eq(responsibilities.dot, dot), eq(responsibilities.status, "active")))
+    .orderBy(asc(responsibilities.id))
+    .all();
   return `<system-reminder>
 # open-dot memory, as of now (replaces any earlier memory in this conversation)
 
@@ -41,12 +47,15 @@ Current time: ${new Date().toString()}
 ## Notes (dot_note saves, dot_forget removes)
 ${list(saved.map((note) => `- #${note.id}: ${note.text}`))}
 
+## Responsibilities (dot_track adds, dot_update changes)
+${list(active.map((item) => `- #${item.id}: ${item.goal}. Next: ${item.nextAction}`))}
+
 ## Scheduled reminders (dot_remind schedules, dot_cancel cancels)
 ${list(scheduled.map((reminder) => `- #${reminder.id} at ${when(reminder)}: ${reminder.text}`))}
 </system-reminder>`;
 }
 
-/** Gives a dot's own location its reminder and note tools, and its memory each turn. */
+/** Gives a dot's own location its tools, and its memory each turn. */
 export default Plugin.define({
   id: "open-dot",
   async setup(context) {
@@ -144,6 +153,61 @@ export default Plugin.define({
             .all();
           if (removed.length === 0) throw new Error(`No note #${input.id}.`);
           return { content: `Forgot note #${input.id}.` };
+        },
+      });
+      editor.add({
+        name: "dot_track",
+        description:
+          "Take on an ongoing responsibility for your owner, with the next thing you will do about it. Responsibilities appear in your context every turn until done or dropped.",
+        input: Schema.Struct({
+          goal: text("The outcome you are responsible for"),
+          next_action: text("The next concrete thing you will do about it"),
+        }),
+        options: { codemode: false },
+        execute: async (input) => {
+          const now = Date.now();
+          const row = db
+            .insert(responsibilities)
+            .values({
+              dot: name,
+              goal: input.goal,
+              nextAction: input.next_action,
+              status: "active",
+              createdAt: now,
+              updatedAt: now,
+            })
+            .returning()
+            .get();
+          return { content: `Tracking responsibility #${row.id}.` };
+        },
+      });
+      editor.add({
+        name: "dot_update",
+        description:
+          "Change a responsibility's next action, or mark it done or dropped, by its number.",
+        input: Schema.Struct({
+          id: id("The responsibility number"),
+          next_action: Schema.optionalKey(text("The new next action")),
+          status: Schema.optionalKey(
+            Schema.Literals(["active", "done", "dropped"]).annotate({
+              description: "The new status",
+            }),
+          ),
+        }),
+        options: { codemode: false },
+        execute: async (input) => {
+          const changed = db
+            .update(responsibilities)
+            .set({
+              ...(input.next_action === undefined ? {} : { nextAction: input.next_action }),
+              ...(input.status === undefined ? {} : { status: input.status }),
+              updatedAt: Date.now(),
+            })
+            .where(and(eq(responsibilities.id, input.id), eq(responsibilities.dot, name)))
+            .returning()
+            .get();
+          if (!changed) throw new Error(`No responsibility #${input.id}.`);
+          return { content: `Responsibility #${changed.id} is ${changed.status}.` };
         },
       });
     });

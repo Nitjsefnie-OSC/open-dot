@@ -98,3 +98,16 @@ test("a reminder needs a future time with a UTC offset", async () => {
   expect(loaded.injected(dot.sessionID)).toContain("Stretch.");
   await loaded.cleanup?.();
 });
+
+test("an active responsibility stays in memory until it is done", async () => {
+  const loaded = await load(dot.directory);
+  await loaded.call("dot_track", { goal: "Ship M3", next_action: "Write the daemon." });
+  expect(loaded.injected(dot.sessionID)).toContain("Ship M3. Next: Write the daemon.");
+
+  await loaded.call("dot_update", { id: 1, next_action: "Test it." });
+  expect(loaded.injected(dot.sessionID)).toContain("Next: Test it.");
+
+  await loaded.call("dot_update", { id: 1, status: "done" });
+  expect(loaded.injected(dot.sessionID)).not.toContain("Ship M3");
+  await loaded.cleanup?.();
+});
