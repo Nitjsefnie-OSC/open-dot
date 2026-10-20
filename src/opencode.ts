@@ -30,7 +30,7 @@ const destructive = [
   "git push * --delete*",
   "git push -d *",
   "git push * -d *",
-  "git push * :*",
+  "git push * :?*",
   "git reset --hard*",
   "git reset * --hard*",
   "git clean *",
