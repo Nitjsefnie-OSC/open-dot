@@ -61,11 +61,11 @@ Each milestone is a shippable vertical slice, tracked as a GitHub issue. Verify 
 - **Deferred:** supervising existing sessions, rich goal and planning views, a notification inbox, voice, native mobile and remote executors.
 - **Dropped:** open-bot's governance control plane, coordinator ownership epochs, workflow VM, duplicate chat UIs, Python fixtures and vendored lint plugins.
 
-## Open decisions
+## Decisions
 
-- After milestone 2, should the web client or Slack come first?
-- Should a dot run only on this machine, or also on an always-on host such as the Raspberry Pi?
-- Which background actions are pre-authorized, and with what limits?
+- **The thin web client comes before Slack.**
+- **Dots run only on this Mac for now.** An always-on host can come later.
+- **A dot may do anything except destructive actions without asking,** like Grok Bot, Codex or pi-durable. Destructive actions, such as deleting files, force pushes or hard resets, still ask the owner.
 
 ## Work queue
 
