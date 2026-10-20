@@ -23,8 +23,9 @@ This project is a fresh, small rebuild of [open-bot](https://github.com/affddn/o
 ~/.opendot/                              OPEN_DOT_HOME
   open-dot.db                            SQLite (Drizzle): dots, reminders, notes
   dots/<name>/AGENTS.md                  the dot's personality and purpose (plain OpenCode instructions)
-  dots/<name>/.opencode/plugins/…        loads the open-dot server plugin for that dot's location
 ```
+
+One `plugins` entry in the OpenCode config loads both plugins. The server plugin stays inert outside a dot's directory.
 
 | Part          | Runs in              | Job                                                                                                      |
 | ------------- | -------------------- | -------------------------------------------------------------------------------------------------------- |
@@ -36,6 +37,14 @@ This project is a fresh, small rebuild of [open-bot](https://github.com/affddn/o
 The daemon, not the plugin, owns timers for two reasons. A plugin runs only while its location is loaded, while the daemon can wake a dot whenever the OpenCode service is up. The daemon is also the future host for the web client and connectors, which is how you'll talk to a dot from anywhere.
 
 The TUI plugin imports no backend code: no `@opencode/client` and no Drizzle. open-bot found that these imports break plugin loading.
+
+## Verified OpenCode behavior
+
+These were checked live against OpenCode 2.1.1 and shape the code:
+
+- **A repeated prompt ID is deduplicated.** Calling `session.prompt` twice with the same `msg_` ID returns that ID both times and leaves one message in history. The daemon's resend-if-absent step relies on this, but still checks by ID first because a concurrent race was not tested.
+- **Per-request context goes near the tail.** Memory pushed onto `system` in the `context` hook was fresh in every request, yet the dot kept answering from its first turn's memory. Like OpenCode's own Plan reminders, memory is now a user message placed just before the latest prompt. That also keeps the cached prompt prefix stable.
+- **TUI imports need explicit extensions.** OpenCode maps `@opentui/solid` and `solid-js` to its own copies only in local files it can resolve without adding an extension. The root `tui.ts` therefore imports `./src/tui.ts`. Without the extension, the sidebar loads a second Solid and crashes with "No renderer found".
 
 ## Milestones
 
