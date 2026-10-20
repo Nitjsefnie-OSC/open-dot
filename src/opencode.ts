@@ -207,8 +207,11 @@ export class OpenCode extends Context.Service<
         turnAfter: ({ sessionID, messageID }) =>
           client.session.context({ sessionID: Session.ID.make(sessionID) }).pipe(
             Effect.map((items) => {
-              // Message IDs sort by creation time.
-              const after = items.filter((item) => item.id > messageID);
+              // Items are in processing order, from the latest compaction on. A compaction can
+              // summarize the prompt away, and then its turn ends after the compaction.
+              const start = items.findIndex((item) => item.id === messageID);
+              if (start === -1 && items[0]?.type !== "compaction") return undefined;
+              const after = items.slice(start + 1);
               const end = after.findIndex((item) => item.type === "idle");
               const idle = after[end];
               if (idle?.type !== "idle") return undefined;
