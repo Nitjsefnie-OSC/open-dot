@@ -21,6 +21,10 @@ function openDot(directory: string) {
   return undefined;
 }
 
+const when = (reminder: { dueAt: number; everyMinutes: number | null }) =>
+  new Date(reminder.dueAt).toString() +
+  (reminder.everyMinutes ? ` (every ${reminder.everyMinutes} minutes)` : "");
+
 function memory(db: Db, dot: string) {
   const saved = db.select().from(notes).where(eq(notes.dot, dot)).orderBy(asc(notes.id)).all();
   const scheduled = db
@@ -38,7 +42,7 @@ Current time: ${new Date().toString()}
 ${list(saved.map((note) => `- #${note.id}: ${note.text}`))}
 
 ## Scheduled reminders (dot_remind schedules, dot_cancel cancels)
-${list(scheduled.map((reminder) => `- #${reminder.id} at ${new Date(reminder.dueAt).toString()}: ${reminder.text}`))}
+${list(scheduled.map((reminder) => `- #${reminder.id} at ${when(reminder)}: ${reminder.text}`))}
 </system-reminder>`;
 }
 
@@ -55,10 +59,13 @@ export default Plugin.define({
       editor.add({
         name: "dot_remind",
         description:
-          "Schedule a reminder. At that time it arrives in this conversation as a message, even if nobody is here.",
+          "Schedule a reminder. At that time it arrives in this conversation as a message, even if nobody is here. With every_minutes it repeats until cancelled.",
         input: Schema.Struct({
           text: text("What to remind about, written for your future self"),
           at: text("When, as ISO 8601 with a UTC offset, e.g. 2026-10-22T09:00:00+08:00"),
+          every_minutes: Schema.optionalKey(
+            id("Repeat this often, in minutes, e.g. 1440 for daily. Omit for a one-off reminder"),
+          ),
         }),
         options: { codemode: false },
         execute: async (input) => {
@@ -67,23 +74,30 @@ export default Plugin.define({
             throw new Error(`"${input.at}" is not an ISO 8601 time with a UTC offset.`);
           }
           if (dueAt <= Date.now()) throw new Error(`${input.at} is in the past.`);
+          const every = input.every_minutes;
+          if (every !== undefined && every < 1)
+            throw new Error("every_minutes must be at least 1.");
           const row = db
             .insert(reminders)
             .values({
               dot: name,
               text: input.text,
               dueAt,
+              everyMinutes: every,
               state: "scheduled",
               createdAt: Date.now(),
             })
             .returning()
             .get();
-          return { content: `Reminder #${row.id} scheduled for ${new Date(dueAt).toString()}.` };
+          const repeat = every ? `, repeating every ${every} minutes` : "";
+          return {
+            content: `Reminder #${row.id} scheduled for ${new Date(dueAt).toString()}${repeat}.`,
+          };
         },
       });
       editor.add({
         name: "dot_cancel",
-        description: "Cancel a scheduled reminder by its number.",
+        description: "Cancel a scheduled reminder by its number. This also stops a repeating one.",
         input: Schema.Struct({ id: id("The reminder number") }),
         options: { codemode: false },
         execute: async (input) => {

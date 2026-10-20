@@ -25,13 +25,18 @@ export const enqueue = (tx: Tx, sessionID: string, text: string) =>
     .returning()
     .get();
 
-/** Moves each due reminder into the outbox. */
+/** The first occurrence after now. Missed occurrences are skipped, not sent in a burst. */
+const nextOccurrence = (dueAt: number, every: number, now: number) =>
+  dueAt + (Math.floor((now - dueAt) / every) + 1) * every;
+
+/** Moves each due reminder into the outbox, and moves a repeating one to its next occurrence. */
 export function claimDue(db: Db, now: number) {
   const due = db
     .select({
       id: reminders.id,
       text: reminders.text,
       dueAt: reminders.dueAt,
+      everyMinutes: reminders.everyMinutes,
       sessionID: dots.sessionID,
     })
     .from(reminders)
@@ -40,15 +45,29 @@ export function claimDue(db: Db, now: number) {
     .all();
   for (const reminder of due) {
     db.transaction((tx) => {
+      const every = reminder.everyMinutes ? reminder.everyMinutes * 60_000 : undefined;
       const claimed = tx
         .update(reminders)
-        .set({ state: "sent" })
-        .where(and(eq(reminders.id, reminder.id), eq(reminders.state, "scheduled")))
+        .set(every ? { dueAt: nextOccurrence(reminder.dueAt, every, now) } : { state: "sent" })
+        .where(
+          and(
+            eq(reminders.id, reminder.id),
+            eq(reminders.state, "scheduled"),
+            eq(reminders.dueAt, reminder.dueAt),
+          ),
+        )
         .returning({ id: reminders.id })
         .get();
       if (!claimed) return;
       const at = new Date(reminder.dueAt).toString();
-      enqueue(tx, reminder.sessionID, `Reminder you scheduled for ${at}:\n\n${reminder.text}`);
+      const repeat = reminder.everyMinutes
+        ? ` (repeats every ${reminder.everyMinutes} minutes)`
+        : "";
+      enqueue(
+        tx,
+        reminder.sessionID,
+        `Reminder you scheduled for ${at}${repeat}:\n\n${reminder.text}`,
+      );
     });
   }
 }

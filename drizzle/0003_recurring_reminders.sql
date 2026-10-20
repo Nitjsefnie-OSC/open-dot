@@ -1,0 +1,1 @@
+ALTER TABLE `reminders` ADD `every_minutes` integer;

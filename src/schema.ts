@@ -18,6 +18,8 @@ export const reminders = sqliteTable("reminders", {
     .references(() => dots.name),
   text: text().notNull(),
   dueAt: integer("due_at").notNull(),
+  // A repeating reminder stays scheduled and moves to its next occurrence each time it is sent.
+  everyMinutes: integer("every_minutes"),
   state: text({ enum: ["scheduled", "sent"] }).notNull(),
   createdAt: integer("created_at").notNull(),
 });

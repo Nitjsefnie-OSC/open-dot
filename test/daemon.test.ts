@@ -52,6 +52,28 @@ test("a due reminder is delivered once, with the message ID saved before the cal
   expect(fake.state.prompted).toEqual([message?.messageID ?? "missing"]);
 });
 
+test("a repeating reminder skips missed occurrences instead of sending a burst", async () => {
+  const minute = 60_000;
+  const due = db
+    .insert(reminders)
+    .values({
+      dot: "jojo",
+      text: "Stand up.",
+      dueAt: minute,
+      everyMinutes: 10,
+      state: "scheduled",
+      createdAt: 0,
+    })
+    .returning()
+    .get();
+
+  await tick(35 * minute);
+  await tick(36 * minute);
+
+  expect(reminder(due.id)).toMatchObject({ state: "scheduled", dueAt: 41 * minute });
+  expect(fake.state.prompted).toHaveLength(1);
+});
+
 test("a delivery whose response was lost is confirmed by ID, not sent again", async () => {
   remind(100);
   fake.state.prompt = "lost";

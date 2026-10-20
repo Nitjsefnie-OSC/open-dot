@@ -22,6 +22,13 @@
       "when": 1792520350738,
       "tag": "0002_outbox",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "6",
+      "when": 1792520434849,
+      "tag": "0003_recurring_reminders",
+      "breakpoints": true
     }
   ]
 }
