@@ -1,6 +1,6 @@
 #!/usr/bin/env bun
 import { Effect, Schedule } from "effect";
-import { claimDue, deliverAll } from "./daemon";
+import { claimDue, deliverAll, hasPending } from "./daemon";
 import { openDatabase } from "./db";
 import { createDot, ensureSession, listDots, pickDot } from "./dots";
 import { databasePath } from "./home";
@@ -43,9 +43,9 @@ const report = (error: { readonly message: string }) =>
   Effect.sync(() => console.error(error.message));
 
 const tick = Effect.suspend(() => {
-  const pending = claimDue(db, Date.now());
-  if (pending.length === 0) return Effect.void;
-  return deliverAll(db, pending).pipe(Effect.provide(OpenCode.layer), Effect.catch(report));
+  claimDue(db, Date.now());
+  if (!hasPending(db)) return Effect.void;
+  return deliverAll(db).pipe(Effect.provide(OpenCode.layer), Effect.catch(report));
 });
 
 const daemon = Effect.sync(() => console.log(`open-dot daemon watching ${databasePath()}`)).pipe(

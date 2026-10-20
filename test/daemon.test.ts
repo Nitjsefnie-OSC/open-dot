@@ -3,7 +3,7 @@ import { eq } from "drizzle-orm";
 import { Effect } from "effect";
 import { claimDue, deliverAll } from "../src/daemon";
 import { type Db, openDatabase } from "../src/db";
-import { dots, reminders } from "../src/schema";
+import { dots, outbox, reminders } from "../src/schema";
 import { fakeOpenCode } from "./fake-opencode";
 
 let db: Db;
@@ -30,10 +30,13 @@ const remind = (dueAt: number) =>
     .returning()
     .get();
 
-const tick = (now: number) =>
-  Effect.runPromise(Effect.provide(deliverAll(db, claimDue(db, now)), fake.layer));
+const tick = (now: number) => {
+  claimDue(db, now);
+  return Effect.runPromise(Effect.provide(deliverAll(db), fake.layer));
+};
 
 const reminder = (id: number) => db.select().from(reminders).where(eq(reminders.id, id)).get();
+const messages = () => db.select().from(outbox).all();
 
 test("a due reminder is delivered once, with the message ID saved before the call", async () => {
   const due = remind(100);
@@ -42,36 +45,38 @@ test("a due reminder is delivered once, with the message ID saved before the cal
   await tick(200);
   await tick(300);
 
-  const sent = reminder(due.id);
-  expect(sent?.state).toBe("sent");
-  expect(fake.state.prompted).toEqual([sent?.messageID ?? "missing"]);
+  expect(reminder(due.id)?.state).toBe("sent");
   expect(reminder(later.id)?.state).toBe("scheduled");
+  const [message] = messages();
+  expect(message?.state).toBe("sent");
+  expect(fake.state.prompted).toEqual([message?.messageID ?? "missing"]);
 });
 
 test("a delivery whose response was lost is confirmed by ID, not sent again", async () => {
-  const due = remind(100);
+  remind(100);
   fake.state.prompt = "lost";
 
   await tick(200);
-  expect(reminder(due.id)?.state).toBe("delivering");
+  expect(messages()[0]?.state).toBe("pending");
 
   fake.state.prompt = "ok";
   await tick(300);
 
-  expect(reminder(due.id)?.state).toBe("sent");
+  expect(messages()[0]?.state).toBe("sent");
   expect(fake.state.prompted).toHaveLength(1);
 });
 
 test("a delivery OpenCode never admitted is sent again with the same message ID", async () => {
-  const due = remind(100);
+  remind(100);
   fake.state.prompt = "fail";
 
   await tick(200);
-  const saved = reminder(due.id)?.messageID;
+  const saved = messages()[0]?.messageID;
 
   fake.state.prompt = "ok";
   await tick(300);
 
-  expect(reminder(due.id)?.state).toBe("sent");
+  expect(messages()).toHaveLength(1);
+  expect(messages()[0]?.state).toBe("sent");
   expect(fake.state.prompted).toEqual([saved ?? "missing"]);
 });

@@ -18,9 +18,17 @@ export const reminders = sqliteTable("reminders", {
     .references(() => dots.name),
   text: text().notNull(),
   dueAt: integer("due_at").notNull(),
-  // "delivering" means the message ID is saved but OpenCode has not confirmed the message yet.
-  state: text({ enum: ["scheduled", "delivering", "sent"] }).notNull(),
-  messageID: text("message_id"),
+  state: text({ enum: ["scheduled", "sent"] }).notNull(),
+  createdAt: integer("created_at").notNull(),
+});
+
+/** Every message the daemon sends to a session. The message ID is saved before any OpenCode call. */
+export const outbox = sqliteTable("outbox", {
+  id: integer().primaryKey({ autoIncrement: true }),
+  sessionID: text("session_id").notNull(),
+  messageID: text("message_id").notNull().unique(),
+  text: text().notNull(),
+  state: text({ enum: ["pending", "sent"] }).notNull(),
   createdAt: integer("created_at").notNull(),
 });
 

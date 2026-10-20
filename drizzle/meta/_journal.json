@@ -15,6 +15,13 @@
       "when": 1792515495690,
       "tag": "0001_reminders_and_notes",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1792520350738,
+      "tag": "0002_outbox",
+      "breakpoints": true
     }
   ]
 }

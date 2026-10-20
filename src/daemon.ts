@@ -1,75 +1,82 @@
 import { SessionMessage } from "@opencode/client/effect";
-import { and, eq, lte } from "drizzle-orm";
+import { and, asc, eq, lte } from "drizzle-orm";
 import { Effect } from "effect";
 import type { Db } from "./db";
 import { OpenCode } from "./opencode";
-import { dots, reminders } from "./schema";
+import { dots, outbox, reminders } from "./schema";
 
-export interface Delivery {
-  readonly id: number;
-  readonly text: string;
-  readonly dueAt: number;
-  readonly messageID: string;
-  readonly sessionID: string;
-}
+type Tx = Parameters<Parameters<Db["transaction"]>[0]>[0];
+type Message = typeof outbox.$inferSelect;
 
 /**
- * Gives each due reminder its message ID and saves it before any OpenCode call, then returns every
- * reminder still waiting for confirmation. The ID is created at delivery time so the message sorts
- * after the conversation that came before it.
+ * Queues a message with its ID created now, so it sorts after the conversation that came before it.
+ * Call it in the same transaction as the state change that produces the message.
  */
-export function claimDue(db: Db, now: number): Delivery[] {
+export const enqueue = (tx: Tx, sessionID: string, text: string) =>
+  tx
+    .insert(outbox)
+    .values({
+      sessionID,
+      messageID: SessionMessage.ID.create(),
+      text,
+      state: "pending",
+      createdAt: Date.now(),
+    })
+    .returning()
+    .get();
+
+/** Moves each due reminder into the outbox. */
+export function claimDue(db: Db, now: number) {
   const due = db
-    .select({ id: reminders.id })
-    .from(reminders)
-    .where(and(eq(reminders.state, "scheduled"), lte(reminders.dueAt, now)))
-    .all();
-  for (const { id } of due) {
-    db.update(reminders)
-      .set({ state: "delivering", messageID: SessionMessage.ID.create() })
-      .where(and(eq(reminders.id, id), eq(reminders.state, "scheduled")))
-      .run();
-  }
-  return db
     .select({
       id: reminders.id,
       text: reminders.text,
       dueAt: reminders.dueAt,
-      messageID: reminders.messageID,
       sessionID: dots.sessionID,
     })
     .from(reminders)
     .innerJoin(dots, eq(reminders.dot, dots.name))
-    .where(eq(reminders.state, "delivering"))
-    .all()
-    .flatMap((row) => (row.messageID ? [{ ...row, messageID: row.messageID }] : []));
+    .where(and(eq(reminders.state, "scheduled"), lte(reminders.dueAt, now)))
+    .all();
+  for (const reminder of due) {
+    db.transaction((tx) => {
+      const claimed = tx
+        .update(reminders)
+        .set({ state: "sent" })
+        .where(and(eq(reminders.id, reminder.id), eq(reminders.state, "scheduled")))
+        .returning({ id: reminders.id })
+        .get();
+      if (!claimed) return;
+      const at = new Date(reminder.dueAt).toString();
+      enqueue(tx, reminder.sessionID, `Reminder you scheduled for ${at}:\n\n${reminder.text}`);
+    });
+  }
 }
 
 /**
- * Sends the reminder only after OpenCode confirms its saved message ID is absent. A lost outcome
- * stays "delivering" and is looked up again on the next tick, never sent blindly.
+ * Sends the message only after OpenCode confirms its saved ID is absent. A lost outcome stays
+ * pending and is looked up again on the next tick, never sent blindly.
  */
-export const deliver = (db: Db, delivery: Delivery) =>
+export const deliver = (db: Db, message: Message) =>
   Effect.gen(function* () {
     const opencode = yield* OpenCode;
-    const ref = { sessionID: delivery.sessionID, messageID: delivery.messageID };
+    const ref = { sessionID: message.sessionID, messageID: message.messageID };
     if (!(yield* opencode.messageExists(ref))) {
-      const due = new Date(delivery.dueAt).toString();
-      yield* opencode.queuePrompt({
-        ...ref,
-        text: `Reminder you scheduled for ${due}:\n\n${delivery.text}`,
-      });
+      yield* opencode.queuePrompt({ ...ref, text: message.text });
     }
-    db.update(reminders).set({ state: "sent" }).where(eq(reminders.id, delivery.id)).run();
+    db.update(outbox).set({ state: "sent" }).where(eq(outbox.id, message.id)).run();
   });
 
-export const deliverAll = (db: Db, deliveries: readonly Delivery[]) =>
+export const hasPending = (db: Db) =>
+  db.select({ id: outbox.id }).from(outbox).where(eq(outbox.state, "pending")).get() !== undefined;
+
+export const deliverAll = (db: Db) =>
   Effect.forEach(
-    deliveries,
-    (delivery) =>
-      deliver(db, delivery).pipe(
+    db.select().from(outbox).where(eq(outbox.state, "pending")).orderBy(asc(outbox.id)).all(),
+    (message) =>
+      deliver(db, message).pipe(
         Effect.catch((error) =>
-          Effect.sync(() => console.error(`Reminder ${delivery.id}: ${error.message}`)),
+          Effect.sync(() => console.error(`Message ${message.messageID}: ${error.message}`)),
         ),
       ),
     { discard: true },
