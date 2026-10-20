@@ -55,3 +55,24 @@ export const responsibilities = sqliteTable("responsibilities", {
   createdAt: integer("created_at").notNull(),
   updatedAt: integer("updated_at").notNull(),
 });
+
+/** Work a dot handed to a separate OpenCode session. */
+export const workers = sqliteTable("workers", {
+  id: integer().primaryKey({ autoIncrement: true }),
+  dot: text()
+    .notNull()
+    .references(() => dots.name),
+  task: text().notNull(),
+  directory: text().notNull(),
+  sessionID: text("session_id").notNull(),
+  // "creating" means the session ID is saved but OpenCode has not confirmed the session yet.
+  state: text({ enum: ["creating", "running", "done"] }).notNull(),
+  promptID: text("prompt_id"),
+  outcome: text(),
+  // The permission request the dot was last told about, so it is told only once.
+  waitingOn: text("waiting_on"),
+  createdAt: integer("created_at").notNull(),
+  finishedAt: integer("finished_at"),
+});
+
+export type Worker = typeof workers.$inferSelect;

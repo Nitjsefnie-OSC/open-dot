@@ -1,10 +1,12 @@
-import { existsSync } from "node:fs";
+import { existsSync, mkdirSync, realpathSync, statSync } from "node:fs";
+import { isAbsolute } from "node:path";
+import { Session } from "@opencode/client/effect";
 import { Plugin } from "@opencode/plugin";
-import { and, asc, eq } from "drizzle-orm";
+import { and, asc, eq, ne } from "drizzle-orm";
 import { Schema } from "effect";
 import { type Db, openDatabase } from "./db";
-import { databasePath } from "./home";
-import { dots, notes, reminders, responsibilities } from "./schema";
+import { databasePath, workDirectory } from "./home";
+import { dots, notes, reminders, responsibilities, workers } from "./schema";
 
 const text = (description: string) => Schema.String.annotate({ description });
 const id = (description: string) => Schema.Int.annotate({ description });
@@ -19,6 +21,18 @@ function openDot(directory: string) {
   if (dot) return { db, dot };
   db.$client.close();
   return undefined;
+}
+
+/** A worker runs in the directory the dot names, or else in the dot's scratch directory. */
+function workingDirectory(dot: string, requested: string | undefined) {
+  if (requested === undefined) {
+    mkdirSync(workDirectory(dot), { recursive: true });
+    return realpathSync(workDirectory(dot));
+  }
+  if (!isAbsolute(requested) || !statSync(requested, { throwIfNoEntry: false })?.isDirectory()) {
+    throw new Error(`${requested} is not an existing absolute directory.`);
+  }
+  return realpathSync(requested);
 }
 
 const when = (reminder: { dueAt: number; everyMinutes: number | null }) =>
@@ -39,6 +53,12 @@ function memory(db: Db, dot: string) {
     .where(and(eq(responsibilities.dot, dot), eq(responsibilities.status, "active")))
     .orderBy(asc(responsibilities.id))
     .all();
+  const unfinished = db
+    .select()
+    .from(workers)
+    .where(and(eq(workers.dot, dot), ne(workers.state, "done")))
+    .orderBy(asc(workers.id))
+    .all();
   return `<system-reminder>
 # open-dot memory, as of now (replaces any earlier memory in this conversation)
 
@@ -49,6 +69,9 @@ ${list(saved.map((note) => `- #${note.id}: ${note.text}`))}
 
 ## Responsibilities (dot_track adds, dot_update changes)
 ${list(active.map((item) => `- #${item.id}: ${item.goal}. Next: ${item.nextAction}`))}
+
+## Unfinished workers (dot_delegate starts one; its report arrives here as a message)
+${list(unfinished.map((worker) => `- #${worker.id} ${worker.state}, session ${worker.sessionID} in ${worker.directory}: ${worker.task.split("\n")[0]}`))}
 
 ## Scheduled reminders (dot_remind schedules, dot_cancel cancels)
 ${list(scheduled.map((reminder) => `- #${reminder.id} at ${when(reminder)}: ${reminder.text}`))}
@@ -153,6 +176,40 @@ export default Plugin.define({
             .all();
           if (removed.length === 0) throw new Error(`No note #${input.id}.`);
           return { content: `Forgot note #${input.id}.` };
+        },
+      });
+      editor.add({
+        name: "dot_delegate",
+        description:
+          "Hand substantial work, such as research, code changes or any multi-step task, to a worker in its own OpenCode session so you stay available. Its report arrives in this conversation as a message when it finishes.",
+        input: Schema.Struct({
+          task: text(
+            "Everything the worker needs: the goal, context, constraints and what to report. It cannot see this conversation",
+          ),
+          directory: Schema.optionalKey(
+            text(
+              "Absolute path of an existing directory to work in, such as a repository. Omit for a scratch directory",
+            ),
+          ),
+        }),
+        options: { codemode: false },
+        execute: async (input) => {
+          const directory = workingDirectory(name, input.directory);
+          const row = db
+            .insert(workers)
+            .values({
+              dot: name,
+              task: input.task,
+              directory,
+              sessionID: Session.ID.create(),
+              state: "creating",
+              createdAt: Date.now(),
+            })
+            .returning()
+            .get();
+          return {
+            content: `Worker #${row.id} will run in ${directory}, session ${row.sessionID}. Its report will arrive here when it finishes.`,
+          };
         },
       });
       editor.add({

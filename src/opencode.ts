@@ -8,6 +8,22 @@ export class OpenCodeError extends Data.TaggedError("OpenCodeError")<{
   readonly cause?: unknown;
 }> {}
 
+/** The text of the last assistant message that wrote any. */
+const lastText = (items: ReadonlyArray<SessionMessage.Info>) =>
+  items
+    .flatMap((item) =>
+      item.type === "assistant"
+        ? [
+            item.content
+              .flatMap((part) => (part.type === "text" ? [part.text] : []))
+              .join("\n")
+              .trim(),
+          ]
+        : [],
+    )
+    .filter((written) => written !== "")
+    .at(-1);
+
 const failed = (message: string) => (cause: unknown) => new OpenCodeError({ message, cause });
 
 export interface SessionInput {
@@ -19,6 +35,18 @@ export interface SessionInput {
 export interface MessageRef {
   readonly sessionID: string;
   readonly messageID: string;
+}
+
+export interface Turn {
+  readonly outcome: "succeeded" | "failed" | "interrupted";
+  /** The text of the turn's last assistant message, if it wrote any. */
+  readonly text: string | undefined;
+}
+
+export interface Approval {
+  readonly id: string;
+  readonly action: string;
+  readonly resources: readonly string[];
 }
 
 /** The few OpenCode calls open-dot makes. Absence is a value, every other failure is an OpenCodeError. */
@@ -33,6 +61,14 @@ export class OpenCode extends Context.Service<
     readonly queuePrompt: (
       ref: MessageRef & { readonly text: string },
     ) => Effect.Effect<void, OpenCodeError>;
+    /** IDs of the sessions that are running a turn now. */
+    readonly activeSessions: Effect.Effect<ReadonlySet<string>, OpenCodeError>;
+    /** The first turn that ended after the message, or undefined while none has. */
+    readonly turnAfter: (ref: MessageRef) => Effect.Effect<Turn | undefined, OpenCodeError>;
+    /** The oldest permission request the session is waiting on. */
+    readonly pendingApproval: (
+      sessionID: string,
+    ) => Effect.Effect<Approval | undefined, OpenCodeError>;
   }
 >()("open-dot/OpenCode") {
   static readonly layer = Layer.effect(
@@ -102,6 +138,31 @@ export class OpenCode extends Context.Service<
               delivery: "queue",
             })
             .pipe(Effect.asVoid, Effect.mapError(failed(`Could not send message ${messageID}`))),
+        activeSessions: client.session.active().pipe(
+          Effect.map((active) => new Set<string>(Object.keys(active))),
+          Effect.mapError(failed("Could not list running sessions")),
+        ),
+        turnAfter: ({ sessionID, messageID }) =>
+          client.session.context({ sessionID: Session.ID.make(sessionID) }).pipe(
+            Effect.map((items) => {
+              // Message IDs sort by creation time.
+              const after = items.filter((item) => item.id > messageID);
+              const end = after.findIndex((item) => item.type === "idle");
+              const idle = after[end];
+              if (idle?.type !== "idle") return undefined;
+              return { outcome: idle.outcome, text: lastText(after.slice(0, end)) };
+            }),
+            Effect.mapError(failed(`Could not read session ${sessionID}`)),
+          ),
+        pendingApproval: (sessionID) =>
+          client.permission.list({ sessionID: Session.ID.make(sessionID) }).pipe(
+            Effect.map(([request]) =>
+              request
+                ? { id: request.id, action: request.action, resources: request.resources }
+                : undefined,
+            ),
+            Effect.mapError(failed(`Could not list permission requests for ${sessionID}`)),
+          ),
       };
     }),
   );

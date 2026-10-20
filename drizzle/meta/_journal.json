@@ -36,6 +36,13 @@
       "when": 1792520474846,
       "tag": "0004_responsibilities",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "6",
+      "when": 1792520570717,
+      "tag": "0005_workers",
+      "breakpoints": true
     }
   ]
 }

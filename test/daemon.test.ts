@@ -1,9 +1,9 @@
 import { beforeEach, expect, test } from "bun:test";
 import { eq } from "drizzle-orm";
 import { Effect } from "effect";
-import { claimDue, deliverAll } from "../src/daemon";
+import { claimDue, step } from "../src/daemon";
 import { type Db, openDatabase } from "../src/db";
-import { dots, outbox, reminders } from "../src/schema";
+import { dots, outbox, reminders, workers } from "../src/schema";
 import { fakeOpenCode } from "./fake-opencode";
 
 let db: Db;
@@ -32,7 +32,7 @@ const remind = (dueAt: number) =>
 
 const tick = (now: number) => {
   claimDue(db, now);
-  return Effect.runPromise(Effect.provide(deliverAll(db), fake.layer));
+  return Effect.runPromise(Effect.provide(step(db), fake.layer));
 };
 
 const reminder = (id: number) => db.select().from(reminders).where(eq(reminders.id, id)).get();
@@ -101,4 +101,41 @@ test("a delivery OpenCode never admitted is sent again with the same message ID"
   expect(messages()).toHaveLength(1);
   expect(messages()[0]?.state).toBe("sent");
   expect(fake.state.prompted).toEqual([saved ?? "missing"]);
+});
+
+test("a worker gets one session and task, and its dot hears once per approval and once when it ends", async () => {
+  db.insert(workers)
+    .values({
+      dot: "jojo",
+      task: "Count the files.",
+      directory: "/work/jojo",
+      sessionID: "ses_worker",
+      state: "creating",
+      createdAt: 0,
+    })
+    .run();
+  const sentTo = (sessionID: string) =>
+    fake.state.texts.filter((sent) => sent.sessionID === sessionID).map((sent) => sent.text);
+
+  await tick(1);
+  await tick(2);
+  expect(fake.state.created.map((session) => session.id)).toEqual(["ses_worker"]);
+  expect(sentTo("ses_worker")).toEqual([expect.stringContaining("Count the files.")]);
+
+  fake.state.active.add("ses_worker");
+  fake.state.approvals.set("ses_worker", { id: "per_1", action: "shell", resources: ["rm -r x"] });
+  await tick(3);
+  await tick(4);
+  expect(sentTo("ses_jojo")).toEqual([expect.stringContaining("rm -r x")]);
+
+  fake.state.active.delete("ses_worker");
+  fake.state.approvals.clear();
+  fake.state.turns.set("ses_worker", { outcome: "succeeded", text: "There are 3 files." });
+  await tick(5);
+  await tick(6);
+  expect(sentTo("ses_jojo")).toEqual([
+    expect.stringContaining("rm -r x"),
+    expect.stringContaining("There are 3 files."),
+  ]);
+  expect(db.select().from(workers).get()?.state).toBe("done");
 });

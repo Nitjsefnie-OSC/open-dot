@@ -111,3 +111,15 @@ test("an active responsibility stays in memory until it is done", async () => {
   expect(loaded.injected(dot.sessionID)).not.toContain("Ship M3");
   await loaded.cleanup?.();
 });
+
+test("a delegated task waits as an unfinished worker in the dot's memory", async () => {
+  const loaded = await load(dot.directory);
+  expect(await fails(loaded.call("dot_delegate", { task: "x", directory: "relative/dir" }))).toBe(
+    true,
+  );
+  await loaded.call("dot_delegate", { task: "Summarize the README." });
+
+  expect(loaded.injected(dot.sessionID)).toContain("#1 creating");
+  expect(loaded.injected(dot.sessionID)).toContain("Summarize the README.");
+  await loaded.cleanup?.();
+});

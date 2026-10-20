@@ -1,6 +1,6 @@
 #!/usr/bin/env bun
 import { Effect, Schedule } from "effect";
-import { claimDue, deliverAll, hasPending } from "./daemon";
+import { claimDue, hasWork, step } from "./daemon";
 import { openDatabase } from "./db";
 import { createDot, ensureSession, listDots, pickDot } from "./dots";
 import { databasePath } from "./home";
@@ -10,7 +10,7 @@ const usage = `Usage:
   open-dot create <name> [purpose]   Create a dot and its OpenCode session
   open-dot list                      List dots
   open-dot open [name]               Open a dot in OpenCode
-  open-dot daemon                    Deliver due reminders until stopped`;
+  open-dot daemon                    Deliver reminders and run workers until stopped`;
 
 const [command, ...args] = process.argv.slice(2);
 const db = openDatabase(databasePath());
@@ -44,8 +44,8 @@ const report = (error: { readonly message: string }) =>
 
 const tick = Effect.suspend(() => {
   claimDue(db, Date.now());
-  if (!hasPending(db)) return Effect.void;
-  return deliverAll(db).pipe(Effect.provide(OpenCode.layer), Effect.catch(report));
+  if (!hasWork(db)) return Effect.void;
+  return step(db).pipe(Effect.provide(OpenCode.layer), Effect.catch(report));
 });
 
 const daemon = Effect.sync(() => console.log(`open-dot daemon watching ${databasePath()}`)).pipe(
