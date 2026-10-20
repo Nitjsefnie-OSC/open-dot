@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, realpathSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { Session } from "@opencode/client/effect";
 import { asc, eq } from "drizzle-orm";
@@ -33,8 +33,9 @@ export function createDot(db: Db, name: string, purpose: string) {
   if (findDot(db, name))
     return Effect.fail(new DotError({ message: `Dot "${name}" already exists.` }));
 
-  const directory = dotDirectory(name);
-  mkdirSync(directory, { recursive: true });
+  mkdirSync(dotDirectory(name), { recursive: true });
+  // The real path matches the directory OpenCode reports for the dot's location.
+  const directory = realpathSync(dotDirectory(name));
   const agents = join(directory, "AGENTS.md");
   if (!existsSync(agents)) writeFileSync(agents, instructions(name, purpose));
 
