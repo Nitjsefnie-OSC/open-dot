@@ -1,5 +1,5 @@
 import { SessionMessage } from "@opencode/client/effect";
-import { and, asc, eq, isNull, lte, ne, or } from "drizzle-orm";
+import { and, asc, eq, isNull, lte, ne } from "drizzle-orm";
 import { Effect } from "effect";
 import type { Db } from "./db";
 import { OpenCode, type Turn } from "./opencode";
@@ -171,7 +171,10 @@ const check = (db: Db, worker: Worker, dotSessionID: string, active: ReadonlySet
           .where(
             and(
               eq(workers.id, worker.id),
-              or(isNull(workers.waitingOn), ne(workers.waitingOn, approval.id)),
+              eq(workers.state, "running"),
+              worker.waitingOn === null
+                ? isNull(workers.waitingOn)
+                : eq(workers.waitingOn, worker.waitingOn),
             ),
           )
           .returning({ id: workers.id })
