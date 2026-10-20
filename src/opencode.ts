@@ -8,6 +8,67 @@ export class OpenCodeError extends Data.TaggedError("OpenCodeError")<{
   readonly cause?: unknown;
 }> {}
 
+/**
+ * Shell commands that can destroy work or data. Dot and worker sessions ask before running them,
+ * and may do anything else. This is best effort: no pattern list catches every destructive command.
+ */
+const destructive = [
+  "rm *",
+  "rmdir *",
+  "unlink *",
+  "shred *",
+  "truncate *",
+  "find * -delete*",
+  "find * -exec rm *",
+  "xargs rm *",
+  "xargs * rm *",
+  "git push --force*",
+  "git push * --force*",
+  "git push -f*",
+  "git push * -f*",
+  "git push * --delete*",
+  "git reset --hard*",
+  "git reset * --hard*",
+  "git clean *",
+  "git checkout -- *",
+  "git restore *",
+  "git branch -D *",
+  "git branch * -D*",
+  "git stash drop*",
+  "git stash clear*",
+  "git worktree remove *",
+  "git filter-branch*",
+  "git filter-repo*",
+  "gh repo delete *",
+  "gh release delete *",
+  "sudo *",
+  "dd *",
+  "mkfs*",
+  "diskutil erase*",
+  "kill *",
+  "pkill *",
+  "killall *",
+  "launchctl unload *",
+  "launchctl bootout *",
+  "launchctl remove *",
+  "crontab -r*",
+  "shutdown *",
+  "reboot*",
+  "docker rm *",
+  "docker rmi *",
+  "docker volume rm *",
+  "docker system prune*",
+  "docker volume prune*",
+  "kubectl delete *",
+  "terraform apply*",
+  "terraform destroy*",
+  "terraform state rm *",
+  "aws s3 rm *",
+  "aws s3 rb *",
+  "aws * delete-*",
+  "opencode service *",
+].map((resource) => ({ action: "shell", resource, effect: "ask" as const }));
+
 /** The text of the last assistant message that wrote any. */
 const lastText = (items: ReadonlyArray<SessionMessage.Info>) =>
   items
@@ -111,6 +172,7 @@ export class OpenCode extends Context.Service<
               id: Session.ID.make(id),
               title,
               location: { directory: AbsolutePath.make(directory) },
+              permissions: destructive,
             })
             .pipe(Effect.asVoid, Effect.mapError(failed(`Could not create session ${id}`))),
         // Check the inbox first: a queued message moves from the inbox into the history, never back.
