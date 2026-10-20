@@ -1,6 +1,6 @@
 import { Database } from "bun:sqlite";
 import { Plugin } from "@opencode/plugin/tui";
-import type { MouseEvent } from "@opentui/core";
+import type { MouseEvent, RGBA } from "@opentui/core";
 import { jsx } from "@opentui/solid/jsx-runtime";
 import { databasePath } from "./home";
 
@@ -9,16 +9,20 @@ interface DotEntry {
   readonly sessionID: string;
 }
 
-/** Reads ready dots straight from open-dot's DB. The TUI must not import backend code. */
-function readDots(): DotEntry[] {
+interface WorkerEntry {
+  readonly id: number;
+  readonly dot: string;
+  readonly task: string;
+  readonly sessionID: string;
+  readonly status: string;
+}
+
+/** Reads straight from open-dot's DB. The TUI must not import backend code. */
+function read<Row>(sql: string, ...params: number[]): Row[] {
   try {
     const db = new Database(databasePath(), { readonly: true });
     try {
-      return db
-        .query<DotEntry, []>(
-          "SELECT name, session_id AS sessionID FROM dots WHERE session_state = 'ready' ORDER BY created_at",
-        )
-        .all();
+      return db.query<Row, number[]>(sql).all(...params);
     } finally {
       db.close();
     }
@@ -26,6 +30,24 @@ function readDots(): DotEntry[] {
     return [];
   }
 }
+
+const readDots = () =>
+  read<DotEntry>(
+    "SELECT name, session_id AS sessionID FROM dots WHERE session_state = 'ready' ORDER BY created_at",
+  );
+
+/** Running workers, and those that finished in the last day. */
+const readWorkers = () =>
+  read<WorkerEntry>(
+    `SELECT id, dot, task, session_id AS sessionID, coalesce(outcome, state) AS status FROM workers
+     WHERE state = 'running' OR (state = 'done' AND finished_at > ?) ORDER BY id`,
+    Date.now() - 24 * 60 * 60 * 1000,
+  );
+
+const short = (task: string) => {
+  const line = task.trim().split("\n")[0] ?? "";
+  return line.length > 28 ? `${line.slice(0, 27)}…` : line;
+};
 
 export default Plugin.define({
   id: "open-dot.tui",
@@ -74,22 +96,36 @@ export default Plugin.define({
       ],
     }));
 
+    const link = (content: string, fg: RGBA, target: DotEntry) =>
+      jsx("text", {
+        content,
+        fg,
+        selectable: false,
+        onMouseUp(event: MouseEvent) {
+          if (event.button === 0) void open(target);
+        },
+      });
+
     const sidebar = context.ui.slot({
       prepend: "sidebar.content",
-      render: () =>
-        jsx("box", {
+      render: () => {
+        const workers = readWorkers();
+        return jsx("box", {
           flexDirection: "column",
-          children: readDots().map((dot) =>
-            jsx("text", {
-              content: `● ${dot.name}`,
-              fg: context.theme.text.base,
-              selectable: false,
-              onMouseUp(event: MouseEvent) {
-                if (event.button === 0) void open(dot);
-              },
-            }),
-          ),
-        }),
+          children: readDots().flatMap((dot) => [
+            link(`● ${dot.name}`, context.theme.text.base, dot),
+            ...workers
+              .filter((worker) => worker.dot === dot.name)
+              .map((worker) =>
+                link(
+                  `  ↳ #${worker.id} ${short(worker.task)} · ${worker.status}`,
+                  context.theme.text.muted,
+                  { name: `${dot.name} worker #${worker.id}`, sessionID: worker.sessionID },
+                ),
+              ),
+          ]),
+        });
+      },
     });
 
     return sidebar;
