@@ -26,12 +26,12 @@ This project is a fresh, small rebuild of [open-bot](https://github.com/affddn/o
   dots/<name>/.opencode/plugins/…        loads the open-dot server plugin for that dot's location
 ```
 
-| Part          | Runs in                | Job                                                                                                     |
-| ------------- | ---------------------- | ------------------------------------------------------------------------------------------------------- |
-| CLI           | `open-dot …`           | Create, list and open dots, and run the daemon.                                                          |
-| Server plugin | OpenCode service       | Provides the tools a dot calls, such as `dot_remind` and `dot_note`. It writes only to open-dot's DB.     |
-| Daemon        | `open-dot daemon`      | The single owner of timers. It delivers due reminders as queued prompts and reconciles unknown outcomes. |
-| TUI plugin    | OpenCode terminal UI   | Shows a sidebar entry for each dot and provides `/dot` and palette commands. It reads the DB read-only.  |
+| Part          | Runs in              | Job                                                                                                      |
+| ------------- | -------------------- | -------------------------------------------------------------------------------------------------------- |
+| CLI           | `open-dot …`         | Create, list and open dots, and run the daemon.                                                          |
+| Server plugin | OpenCode service     | Provides the tools a dot calls, such as `dot_remind` and `dot_note`. It writes only to open-dot's DB.    |
+| Daemon        | `open-dot daemon`    | The single owner of timers. It delivers due reminders as queued prompts and reconciles unknown outcomes. |
+| TUI plugin    | OpenCode terminal UI | Shows a sidebar entry for each dot and provides `/dot` and palette commands. It reads the DB read-only.  |
 
 The daemon, not the plugin, owns timers for two reasons. A plugin runs only while its location is loaded, while the daemon can wake a dot whenever the OpenCode service is up. The daemon is also the future host for the web client and connectors, which is how you'll talk to a dot from anywhere.
 
