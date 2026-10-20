@@ -209,20 +209,29 @@ export class OpenCode extends Context.Service<
           Effect.mapError(failed("Could not list running sessions")),
         ),
         turnAfter: ({ sessionID, messageID }) =>
-          client.session.context({ sessionID: Session.ID.make(sessionID) }).pipe(
-            Effect.map((items) => {
-              // Items are in processing order, from the latest compaction on. A compaction can
-              // summarize the prompt away, and then its turn ends after the compaction.
-              const start = items.findIndex((item) => item.id === messageID);
-              if (start === -1 && items[0]?.type !== "compaction") return undefined;
-              const after = items.slice(start + 1);
-              const end = after.findIndex((item) => item.type === "idle");
-              const idle = after[end];
-              if (idle?.type !== "idle") return undefined;
-              return { outcome: idle.outcome, text: lastText(after.slice(0, end)) };
-            }),
-            Effect.mapError(failed(`Could not read session ${sessionID}`)),
-          ),
+          Effect.gen(function* () {
+            // The full history in processing order. session.context would start at the latest
+            // compaction, which can hide the prompt or its idle.
+            const limit = 200;
+            const turn: SessionMessage.Info[] = [];
+            let prompted = false;
+            let cursor: string | undefined;
+            for (;;) {
+              const page = yield* client.message.list(
+                cursor
+                  ? { sessionID: Session.ID.make(sessionID), cursor, limit }
+                  : { sessionID: Session.ID.make(sessionID), order: "asc", limit },
+              );
+              for (const item of page.data) {
+                if (!prompted) prompted = item.id === messageID;
+                else if (item.type === "idle")
+                  return { outcome: item.outcome, text: lastText(turn) };
+                else turn.push(item);
+              }
+              if (page.data.length < limit) return undefined;
+              cursor = page.cursor.next;
+            }
+          }).pipe(Effect.mapError(failed(`Could not read session ${sessionID}`))),
         pendingApproval: (sessionID) =>
           client.permission.list({ sessionID: Session.ID.make(sessionID) }).pipe(
             Effect.map(([request]) =>
