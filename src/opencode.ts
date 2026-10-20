@@ -1,4 +1,4 @@
-import { AbsolutePath, OpenCode as Client, Session } from "@opencode/client/effect";
+import { AbsolutePath, OpenCode as Client, Session, SessionMessage } from "@opencode/client/effect";
 import { Service } from "@opencode/client/service";
 import { Context, Data, Effect, Layer } from "effect";
 import { FetchHttpClient, HttpClient, HttpClientRequest } from "effect/http";
@@ -16,12 +16,23 @@ export interface SessionInput {
   readonly title: string;
 }
 
+export interface MessageRef {
+  readonly sessionID: string;
+  readonly messageID: string;
+}
+
 /** The few OpenCode calls open-dot makes. Absence is a value, every other failure is an OpenCodeError. */
 export class OpenCode extends Context.Service<
   OpenCode,
   {
     readonly sessionExists: (sessionID: string) => Effect.Effect<boolean, OpenCodeError>;
     readonly createSession: (input: SessionInput) => Effect.Effect<void, OpenCodeError>;
+    /** True once OpenCode has admitted the message, whether it is still queued or already in the history. */
+    readonly messageExists: (ref: MessageRef) => Effect.Effect<boolean, OpenCodeError>;
+    /** Queues the text as a user message with the caller's ID. */
+    readonly queuePrompt: (
+      ref: MessageRef & { readonly text: string },
+    ) => Effect.Effect<void, OpenCodeError>;
   }
 >()("open-dot/OpenCode") {
   static readonly layer = Layer.effect(
@@ -66,6 +77,31 @@ export class OpenCode extends Context.Service<
               location: { directory: AbsolutePath.make(directory) },
             })
             .pipe(Effect.asVoid, Effect.mapError(failed(`Could not create session ${id}`))),
+        // Check the inbox first: a queued message moves from the inbox into the history, never back.
+        messageExists: (ref) => {
+          const sessionID = Session.ID.make(ref.sessionID);
+          const messageID = SessionMessage.ID.make(ref.messageID);
+          return client.session.inbox.list({ sessionID }).pipe(
+            Effect.flatMap((inbox) =>
+              inbox.some((item) => item.id === messageID)
+                ? Effect.succeed(true)
+                : client.session.message.get({ sessionID, messageID }).pipe(
+                    Effect.as(true),
+                    Effect.catchTag("MessageNotFoundError", () => Effect.succeed(false)),
+                  ),
+            ),
+            Effect.mapError(failed(`Could not look up message ${ref.messageID}`)),
+          );
+        },
+        queuePrompt: ({ sessionID, messageID, text }) =>
+          client.session
+            .prompt({
+              sessionID: Session.ID.make(sessionID),
+              id: SessionMessage.ID.make(messageID),
+              text,
+              delivery: "queue",
+            })
+            .pipe(Effect.asVoid, Effect.mapError(failed(`Could not send message ${messageID}`))),
       };
     }),
   );

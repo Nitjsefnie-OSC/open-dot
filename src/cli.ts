@@ -1,5 +1,6 @@
 #!/usr/bin/env bun
-import { Effect } from "effect";
+import { Effect, Schedule } from "effect";
+import { claimDue, deliverAll } from "./daemon";
 import { openDatabase } from "./db";
 import { createDot, ensureSession, listDots, pickDot } from "./dots";
 import { databasePath } from "./home";
@@ -8,7 +9,8 @@ import { OpenCode } from "./opencode";
 const usage = `Usage:
   open-dot create <name> [purpose]   Create a dot and its OpenCode session
   open-dot list                      List dots
-  open-dot open [name]               Open a dot in OpenCode`;
+  open-dot open [name]               Open a dot in OpenCode
+  open-dot daemon                    Deliver due reminders until stopped`;
 
 const [command, ...args] = process.argv.slice(2);
 const db = openDatabase(databasePath());
@@ -37,6 +39,19 @@ const list = Effect.sync(() => {
     console.log(`${dot.name}\t${dot.sessionState}\t${dot.sessionID}\t${dot.directory}`);
 });
 
+const report = (error: { readonly message: string }) =>
+  Effect.sync(() => console.error(error.message));
+
+const tick = Effect.suspend(() => {
+  const pending = claimDue(db, Date.now());
+  if (pending.length === 0) return Effect.void;
+  return deliverAll(db, pending).pipe(Effect.provide(OpenCode.layer), Effect.catch(report));
+});
+
+const daemon = Effect.sync(() => console.log(`open-dot daemon watching ${databasePath()}`)).pipe(
+  Effect.andThen(Effect.repeat(tick, Schedule.spaced("1 second"))),
+);
+
 const program =
   command === "create" && args[0]
     ? create(args[0], args.slice(1).join(" "))
@@ -44,7 +59,9 @@ const program =
       ? list
       : command === "open"
         ? open(args[0])
-        : Effect.sync(() => console.log(usage));
+        : command === "daemon"
+          ? daemon
+          : Effect.sync(() => console.log(usage));
 
 await Effect.runPromise(
   program.pipe(
