@@ -2,7 +2,7 @@ import { Database } from "bun:sqlite";
 import { Plugin } from "@opencode/plugin/tui";
 import type { MouseEvent } from "@opentui/core";
 import { jsx } from "@opentui/solid/jsx-runtime";
-import { createSignal } from "solid-js";
+import { createSignal, onCleanup } from "solid-js";
 import { databasePath } from "./home";
 
 interface DotEntry {
@@ -112,14 +112,25 @@ export default Plugin.define({
     };
 
     const mark = (worker: WorkerEntry) =>
-      jsx("span", { fg: markColor(worker.status), children: marks[worker.status] ?? "–" });
+      jsx("span", {
+        style: { fg: markColor(worker.status) },
+        children: marks[worker.status] ?? "–",
+      });
 
     function showWorker(worker: WorkerEntry) {
-      const { theme } = context;
+      const { theme, renderer } = context;
       const close = () => context.ui.dialog.clear();
       const rest = worker.task.trim().split("\n").slice(1).join("\n").trim();
-      context.ui.dialog.show(() =>
-        jsx("box", {
+      // A large dialog leaves about 80 columns for the task.
+      const rows = rest
+        .split("\n")
+        .reduce((sum, line) => sum + Math.max(1, Math.ceil(line.length / 78)), 0);
+      context.ui.dialog.show(() => {
+        const [screen, setScreen] = createSignal(renderer.terminalHeight);
+        const resize = (_width: number, height: number) => setScreen(height);
+        renderer.on("resize", resize);
+        onCleanup(() => renderer.off("resize", resize));
+        return jsx("box", {
           paddingLeft: 2,
           paddingRight: 2,
           paddingBottom: 1,
@@ -141,10 +152,15 @@ export default Plugin.define({
               fg: theme.text.muted,
               children: [mark(worker), ` ${worker.status} · ${worker.dot}`],
             }),
-            jsx("scrollbox", {
-              maxHeight: Math.max(5, Math.floor(context.renderer.terminalHeight / 2) - 6),
-              children: jsx("text", { content: rest, fg: theme.text.base }),
-            }),
+            rest
+              ? jsx("scrollbox", {
+                  paddingRight: 1,
+                  get height() {
+                    return Math.min(rows, Math.max(5, Math.floor(screen() / 2) - 6));
+                  },
+                  children: jsx("text", { content: rest, fg: theme.text.base }),
+                })
+              : null,
             jsx("box", {
               flexDirection: "row",
               justifyContent: "flex-end",
@@ -166,8 +182,8 @@ export default Plugin.define({
               }),
             }),
           ],
-        }),
-      );
+        });
+      });
       context.ui.dialog.set({ size: "large" });
     }
 
