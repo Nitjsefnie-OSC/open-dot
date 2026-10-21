@@ -96,7 +96,7 @@ test("/dots lists each dot with whether it's busy and its unfinished workers", a
   ]);
 });
 
-test("messages say who wrote each one", async () => {
+test("messages say who wrote each one, and hide the mechanics", async () => {
   queued("msg_2", "Reminder: stretch.", {});
   queued("msg_3", "framed", { fromDot: "polnareff" });
   queued("msg_4", "From the notch", { fromOwner: true });
@@ -105,9 +105,9 @@ test("messages say who wrote each one", async () => {
     entry("msg_2", "user", "Reminder: stretch."),
     entry("msg_3", "user", "framed"),
     entry("msg_4", "user", "From the notch"),
-    entry("msg_5", "assistant", "", ["dot_delegate"]),
-    entry("msg_6", "assistant", ""),
-    entry("msg_7", "assistant", "Done."),
+    entry("msg_5", "assistant", "", ["shell", "dot_delegate"]),
+    entry("msg_6", "assistant", "", ["context_compact", "read"]),
+    entry("msg_7", "assistant", "Done.", ["read"]),
   ]);
 
   const messages = await conversation();
@@ -120,6 +120,8 @@ test("messages say who wrote each one", async () => {
     "msg_7 dot",
   ]);
   expect(messages[2]).toMatchObject({ peer: "polnareff", text: "framed" });
+  expect(messages[4]).toMatchObject({ tools: ["dot_delegate"] });
+  expect(messages[5]).toMatchObject({ text: "Done.", tools: [] });
 });
 
 test("a peer message shows only what the other dot wrote", async () => {
@@ -149,5 +151,6 @@ test("posting a message queues it for the daemon to deliver", async () => {
   expect((await post("/dots/jojo/messages", JSON.stringify({ text: " " }))).status).toBe(400);
   expect((await post("/dots/jojo/messages", "not json")).status).toBe(400);
   expect((await post("/dots/dio/messages", JSON.stringify({ text: "Hi" }))).status).toBe(404);
+  expect((await post("/dots/%ZZ/messages", JSON.stringify({ text: "Hi" }))).status).toBe(400);
   expect(db.select().from(outbox).all()).toHaveLength(1);
 });

@@ -48,8 +48,12 @@ const conversation = (db: Db, dot: Dot) =>
     );
     const label = (item: Entry) => {
       const base = { id: item.id, text: item.text, tools: item.tools, time: item.time };
-      if (item.role === "assistant")
-        return item.text || item.tools.length > 0 ? [{ ...base, kind: "dot" }] : [];
+      // Show what the dot said and the open-dot actions it took, not mechanics such as shell
+      // commands, file reads or compaction.
+      if (item.role === "assistant") {
+        const actions = item.tools.filter((tool) => tool.startsWith("dot_"));
+        return item.text || actions.length > 0 ? [{ ...base, tools: actions, kind: "dot" }] : [];
+      }
       const row = sent.get(item.id);
       if (!row || row.fromOwner) return [{ ...base, kind: "owner" }];
       if (!row.fromDot) return [{ ...base, kind: "notice" }];
@@ -90,7 +94,15 @@ const route = (db: Db, request: Request): Effect.Effect<Response, OpenCodeError,
   if (root !== "dots" || extra.length > 0) return Effect.succeed(error(404, "Not found"));
   if (name === undefined)
     return request.method === "GET" ? listAll(db) : Effect.succeed(error(404, "Not found"));
-  const dot = findDot(db, decodeURIComponent(name));
+  const decoded = (() => {
+    try {
+      return decodeURIComponent(name);
+    } catch {
+      return undefined;
+    }
+  })();
+  if (decoded === undefined) return Effect.succeed(error(400, "Bad dot name."));
+  const dot = findDot(db, decoded);
   if (!dot) return Effect.succeed(error(404, `There's no dot named "${name}".`));
   if (rest === "messages" && request.method === "GET") return conversation(db, dot);
   if (rest === "messages" && request.method === "POST") return send(db, dot, request);
