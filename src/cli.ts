@@ -1,6 +1,6 @@
 #!/usr/bin/env bun
 import { randomBytes } from "node:crypto";
-import { renameSync, writeFileSync } from "node:fs";
+import { renameSync, rmSync, writeFileSync } from "node:fs";
 import { Effect, Schedule } from "effect";
 import { api } from "./api";
 import { claimDue, hasWork, step } from "./daemon";
@@ -62,8 +62,10 @@ const serve = Effect.sync(() => {
     fetch: api(db, token, OpenCode.layer),
   });
   const temporary = `${apiPath()}.${process.pid}`;
+  rmSync(temporary, { force: true });
   writeFileSync(temporary, JSON.stringify({ url: `http://127.0.0.1:${server.port}`, token }), {
     mode: 0o600,
+    flag: "wx",
   });
   renameSync(temporary, apiPath());
   console.log(`open-dot API on http://127.0.0.1:${server.port}`);
