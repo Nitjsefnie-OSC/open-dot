@@ -248,6 +248,7 @@ struct Bubble: View {
   var body: some View {
     Text(markdown(text))
       .textSelection(.enabled)
+      .tint(.white)
       .padding(.horizontal, 10)
       .padding(.vertical, 6)
       .background(RoundedRectangle(cornerRadius: 12).fill(fill))
@@ -255,6 +256,12 @@ struct Bubble: View {
 
   private func markdown(_ text: String) -> AttributedString {
     let options = AttributedString.MarkdownParsingOptions(interpretedSyntax: .inlineOnlyPreservingWhitespace)
-    return (try? AttributedString(markdown: text, options: options)) ?? AttributedString(text)
+    var string = (try? AttributedString(markdown: text, options: options)) ?? AttributedString(text)
+    // Links stay white and underlined, so they read on both bubble colors.
+    for run in string.runs where run.link != nil {
+      string[run.range].foregroundColor = .white
+      string[run.range].underlineStyle = .single
+    }
+    return string
   }
 }
