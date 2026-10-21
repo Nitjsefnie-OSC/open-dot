@@ -119,12 +119,13 @@ struct ExpandedView: View {
   }
 
   private func composer(_ name: String) -> some View {
-    let empty = store.draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    let empty = (store.drafts[name] ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     return HStack {
-      TextField("Message \(name)", text: $store.draft)
+      TextField("Message \(name)", text: Binding { store.drafts[name] ?? "" } set: { store.drafts[name] = $0 })
         .textFieldStyle(.plain)
         .onSubmit { store.send() }
         .accessibilityIdentifier("composer")
+        .id(name)
       Button { store.send() } label: {
         Image(systemName: "arrow.up.circle.fill").font(.title2)
       }
@@ -216,7 +217,7 @@ struct PendingRow: View {
         if let error = item.error {
           Text("\(error) · click to dismiss").font(.caption2).foregroundStyle(.red)
         } else {
-          Text("sending…").font(.caption2).foregroundStyle(.tertiary)
+          Text(item.messageID == nil ? "sending…" : "queued").font(.caption2).foregroundStyle(.tertiary)
         }
       }
     }

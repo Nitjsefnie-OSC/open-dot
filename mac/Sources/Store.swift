@@ -4,6 +4,7 @@ import Observation
 struct Pending: Identifiable {
   let id = UUID()
   let text: String
+  let sentAt = Date().timeIntervalSince1970 * 1000
   var messageID: String?
   var error: String?
 }
@@ -15,7 +16,7 @@ struct Pending: Identifiable {
   var selected: String?
   var messages: [String: [Message]] = [:]
   var pending: [String: [Pending]] = [:]
-  var draft = ""
+  var drafts: [String: String] = [:]
   var expanded = false
   private var seen: [String: Double] = [:]
   private var newest: [String: Double] = [:]
@@ -60,9 +61,10 @@ struct Pending: Identifiable {
   }
 
   func send() {
-    let text = draft.trimmingCharacters(in: .whitespacesAndNewlines)
-    guard let name = selected, !text.isEmpty else { return }
-    draft = ""
+    guard let name = selected else { return }
+    let text = (drafts[name] ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !text.isEmpty else { return }
+    drafts[name] = nil
     let item = Pending(text: text)
     pending[name, default: []].append(item)
     Task {
@@ -97,7 +99,9 @@ struct Pending: Identifiable {
     guard let list = try? await api.messages(name) else { return }
     messages[name] = list
     let ids = Set(list.map(\.id))
-    pending[name]?.removeAll { $0.messageID.map(ids.contains) ?? false }
+    let oldest = list.first?.time ?? 0
+    // An accepted message older than everything shown was delivered and has scrolled out.
+    pending[name]?.removeAll { item in item.messageID.map { ids.contains($0) || oldest > item.sentAt } ?? false }
     let latest = list.filter { $0.kind != "owner" }.map(\.time).max() ?? 0
     newest[name] = latest
     if seen[name] == nil || (expanded && selected == name) { seen[name] = latest }
