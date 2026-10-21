@@ -4,6 +4,7 @@ import SwiftUI
 let expandedSize = CGSize(width: 520, height: 440)
 let earWidth: CGFloat = 26
 let messageBlue = Color(red: 10 / 255, green: 132 / 255, blue: 1)
+let messageGray = Color(red: 38 / 255, green: 38 / 255, blue: 40 / 255)
 
 struct RootView: View {
   @Bindable var store: Store
@@ -185,7 +186,7 @@ struct MessageRow: View {
     case "dot":
       HStack {
         VStack(alignment: .leading, spacing: 3) {
-          if !message.text.isEmpty { Bubble(text: message.text, fill: .white.opacity(0.08)) }
+          if !message.text.isEmpty { Bubble(text: message.text, fill: messageGray) }
           if let tools = message.tools, !tools.isEmpty {
             Text("used \(tools.joined(separator: ", "))").font(.caption2).foregroundStyle(.tertiary)
           }
