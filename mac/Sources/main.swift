@@ -22,6 +22,13 @@ final class HoverView: NSView {
 
   override func mouseEntered(with event: NSEvent) { onHover(true) }
   override func mouseExited(with event: NSEvent) { onHover(false) }
+
+  /// Pins each subview to the top center, so resizing the window only changes how much of it shows.
+  override func resizeSubviews(withOldSize oldSize: NSSize) {
+    for view in subviews {
+      view.setFrameOrigin(NSPoint(x: (bounds.width - view.frame.width) / 2, y: bounds.height - view.frame.height))
+    }
+  }
 }
 
 struct Notch {
@@ -97,11 +104,11 @@ struct Notch {
       hosting.rootView = root
     } else {
       let hosting = HostingView(rootView: root)
-      // Without this the hosting view pins the window to SwiftUI's ideal size and fights the resize.
+      // SwiftUI always lays out the full panel. A layout that changed with the window would animate from the wrong corner.
       hosting.sizingOptions = []
-      hosting.frame = hover.bounds
-      hosting.autoresizingMask = [.width, .height]
+      hosting.frame = NSRect(origin: .zero, size: expandedSize)
       hover.addSubview(hosting)
+      hover.resizeSubviews(withOldSize: hover.bounds.size)
       self.hosting = hosting
     }
     generation += 1
