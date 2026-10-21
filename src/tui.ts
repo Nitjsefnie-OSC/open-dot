@@ -45,29 +45,26 @@ const readWorkers = () =>
     Date.now() - 24 * 60 * 60 * 1000,
   );
 
+const title = (task: string) => task.trim().split("\n")[0] ?? "";
+
 const short = (task: string) => {
-  const line = task.trim().split("\n")[0] ?? "";
+  const line = title(task);
   return line.length > 28 ? `${line.slice(0, 27)}…` : line;
 };
 
+const marks: Record<string, string> = { running: "●", succeeded: "✓", failed: "✗" };
+
 interface Line {
-  readonly content: string;
-  readonly worker: boolean;
-  readonly target: DotEntry;
+  readonly dot: DotEntry;
+  readonly worker?: WorkerEntry;
 }
 
 /** Each dot, followed by its workers. */
 function readSidebar(): Line[] {
   const workers = readWorkers();
   return readDots().flatMap((dot) => [
-    { content: `● ${dot.name}`, worker: false, target: dot },
-    ...workers
-      .filter((worker) => worker.dot === dot.name)
-      .map((worker) => ({
-        content: `  ↳ #${worker.id} ${short(worker.task)} · ${worker.status}`,
-        worker: true,
-        target: { name: `${dot.name} worker #${worker.id}`, sessionID: worker.sessionID },
-      })),
+    { dot },
+    ...workers.filter((worker) => worker.dot === dot.name).map((worker) => ({ dot, worker })),
   ]);
 }
 
@@ -106,6 +103,74 @@ export default Plugin.define({
       if (picked) await open(picked);
     }
 
+    const markColor = (status: string) => {
+      const { feedback } = context.theme.text;
+      if (status === "running") return feedback.warning.base;
+      if (status === "succeeded") return feedback.success.base;
+      if (status === "failed") return feedback.error.base;
+      return context.theme.text.muted;
+    };
+
+    const mark = (worker: WorkerEntry) =>
+      jsx("span", { fg: markColor(worker.status), children: marks[worker.status] ?? "–" });
+
+    function showWorker(worker: WorkerEntry) {
+      const { theme } = context;
+      const close = () => context.ui.dialog.clear();
+      const rest = worker.task.trim().split("\n").slice(1).join("\n").trim();
+      context.ui.dialog.show(() =>
+        jsx("box", {
+          paddingLeft: 2,
+          paddingRight: 2,
+          paddingBottom: 1,
+          gap: 1,
+          children: [
+            jsx("box", {
+              flexDirection: "row",
+              justifyContent: "space-between",
+              gap: 2,
+              children: [
+                jsx("text", {
+                  fg: theme.text.base,
+                  children: jsx("b", { children: `#${worker.id} ${title(worker.task)}` }),
+                }),
+                jsx("text", { content: "esc", fg: theme.text.muted, onMouseUp: close }),
+              ],
+            }),
+            jsx("text", {
+              fg: theme.text.muted,
+              children: [mark(worker), ` ${worker.status} · ${worker.dot}`],
+            }),
+            jsx("scrollbox", {
+              maxHeight: Math.max(5, Math.floor(context.renderer.terminalHeight / 2) - 6),
+              children: jsx("text", { content: rest, fg: theme.text.base }),
+            }),
+            jsx("box", {
+              flexDirection: "row",
+              justifyContent: "flex-end",
+              children: jsx("box", {
+                paddingLeft: 2,
+                paddingRight: 2,
+                backgroundColor: theme.background.action.primary.base,
+                onMouseUp() {
+                  close();
+                  void open({
+                    name: `${worker.dot} worker #${worker.id}`,
+                    sessionID: worker.sessionID,
+                  });
+                },
+                children: jsx("text", {
+                  content: "Open session",
+                  fg: theme.text.action.primary.base,
+                }),
+              }),
+            }),
+          ],
+        }),
+      );
+      context.ui.dialog.set({ size: "large" });
+    }
+
     context.keymap.layer(() => ({
       mode: "global",
       commands: [
@@ -130,15 +195,24 @@ export default Plugin.define({
         jsx("box", {
           flexDirection: "column",
           children: () =>
-            rows().map((row) =>
-              jsx("text", {
-                content: row.content,
-                fg: row.worker ? context.theme.text.muted : context.theme.text.base,
-                selectable: false,
-                onMouseUp(event: MouseEvent) {
-                  if (event.button === 0) void open(row.target);
-                },
-              }),
+            rows().map(({ dot, worker }) =>
+              worker
+                ? jsx("text", {
+                    fg: context.theme.text.muted,
+                    selectable: false,
+                    onMouseUp(event: MouseEvent) {
+                      if (event.button === 0) showWorker(worker);
+                    },
+                    children: ["  ", mark(worker), ` #${worker.id} ${short(worker.task)}`],
+                  })
+                : jsx("text", {
+                    content: `● ${dot.name}`,
+                    fg: context.theme.text.base,
+                    selectable: false,
+                    onMouseUp(event: MouseEvent) {
+                      if (event.button === 0) void open(dot);
+                    },
+                  }),
             ),
         }),
     });
