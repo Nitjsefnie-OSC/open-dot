@@ -4,7 +4,7 @@ A durable personal agent built on OpenCode V2. You give a dot a name and a purpo
 
 OpenCode provides the model, tools, permissions and chat. open-dot adds identity, continuity and timing. See [docs/PLAN.md](docs/PLAN.md) for the design and milestones.
 
-> Status: early. Milestones 1 (a dot you can open), 2 (it follows up) and 3 (it delegates) are done.
+> Status: early. Milestones 1 (a dot you can open), 2 (it follows up), 3 (it delegates), 4 (dots talk to each other) and 5 (the notch app) are done.
 
 ## Use it
 
@@ -52,5 +52,15 @@ On macOS, a launch agent starts the daemon at login and restarts it if it exits.
 ```
 
 Load it with `launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.opzero1.open-dot.daemon.plist`. The daemon keeps running the code it started with, so after pulling changes restart it with `launchctl kickstart -k gui/$(id -u)/com.opzero1.open-dot.daemon`.
+
+## Talk from the notch
+
+The notch app is a small native macOS app (macOS 14 or later) that talks to the running daemon. Build and start it:
+
+```sh
+cd mac && swift build -c release && .build/release/open-dot-notch
+```
+
+Hover over the notch to open the panel: pick a dot, read its conversation, see its unfinished workers, and type to it. Enter sends. The panel closes shortly after the mouse leaves, and keeps your draft. A dot beside the notch shows that a dot is busy or has something new. Right-click the open panel to quit.
 
 open-dot keeps its data in `~/.opendot`. Set `OPEN_DOT_HOME` to use another directory.
