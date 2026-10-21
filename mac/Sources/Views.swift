@@ -6,19 +6,31 @@ let earWidth: CGFloat = 26
 let messageBlue = Color(red: 10 / 255, green: 132 / 255, blue: 1)
 let messageGray = Color(red: 38 / 255, green: 38 / 255, blue: 40 / 255)
 
+extension Animation {
+  static let open = Animation.spring(response: 0.42, dampingFraction: 0.8)
+  static let close = Animation.spring(response: 0.34, dampingFraction: 1)
+}
+
+/// The black shape grows out of the notch and shrinks back into it. The window around it stays transparent.
 struct RootView: View {
   @Bindable var store: Store
-  let topInset: CGFloat
+  let notch: CGSize
   let collapsedRadius: CGFloat
   let onIndicatorChange: () -> Void
 
   var body: some View {
     let radius = store.expanded ? 22 : collapsedRadius
+    let size = store.expanded
+      ? expandedSize : CGSize(width: notch.width + (store.showsIndicator ? earWidth * 2 : 0), height: notch.height)
     ZStack(alignment: .top) {
       if store.expanded {
-        ExpandedView(store: store, topInset: topInset)
+        ExpandedView(store: store, topInset: notch.height)
           .frame(width: expandedSize.width, height: expandedSize.height)
-          .transition(.opacity)
+          .transition(
+            .asymmetric(
+              insertion: .opacity.combined(with: .scale(scale: 0.94, anchor: .top))
+                .animation(.easeOut(duration: 0.24).delay(0.06)),
+              removal: .opacity.animation(.easeIn(duration: 0.1))))
       } else if store.showsIndicator {
         HStack {
           if store.dots.contains(where: \.busy) { BusyDot() }
@@ -26,12 +38,15 @@ struct RootView: View {
           if store.dots.contains(where: { store.unread($0.name) }) { UnreadDot() }
         }
         .padding(.horizontal, 10)
-        .frame(height: topInset)
+        .frame(height: notch.height)
+        .transition(.opacity)
       }
     }
-    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+    .frame(width: size.width, height: size.height, alignment: .top)
     .background(.black)
     .clipShape(UnevenRoundedRectangle(bottomLeadingRadius: radius, bottomTrailingRadius: radius))
+    .animation(.open, value: store.showsIndicator)
+    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
     .environment(\.colorScheme, .dark)
     .onChange(of: store.showsIndicator) { onIndicatorChange() }
   }

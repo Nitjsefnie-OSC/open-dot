@@ -60,6 +60,7 @@ struct Notch {
   private var hosting: HostingView<RootView>?
   private var notch: Notch?
   private var collapse: Task<Void, Never>?
+  private var generation = 0
 
   func applicationDidFinishLaunching(_ notification: Notification) {
     NSApp.setActivationPolicy(.accessory)
@@ -89,8 +90,8 @@ struct Notch {
     guard let screen = NSScreen.screens.first(where: { $0.safeAreaInsets.top > 0 }) ?? NSScreen.main, let hover = panel.contentView else { return }
     let notch = Notch(screen)
     self.notch = notch
-    let root = RootView(store: store, topInset: notch.size.height, collapsedRadius: notch.radius) { [weak self] in
-      self?.place(animated: true)
+    let root = RootView(store: store, notch: notch.size, collapsedRadius: notch.radius) { [weak self] in
+      self?.resize()
     }
     if let hosting {
       hosting.rootView = root
@@ -103,17 +104,23 @@ struct Notch {
       hover.addSubview(hosting)
       self.hosting = hosting
     }
-    place(animated: false)
+    generation += 1
+    if let frame = target() { panel.setFrame(frame, display: true) }
   }
 
-  private func place(animated: Bool) {
-    guard let notch else { return }
-    let frame = notch.frame(expanded: store.expanded, indicator: store.showsIndicator)
-    guard animated else { return panel.setFrame(frame, display: true) }
-    NSAnimationContext.runAnimationGroup { context in
-      context.duration = 0.22
-      context.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
-      panel.animator().setFrame(frame, display: true)
+  private func target() -> NSRect? {
+    notch?.frame(expanded: store.expanded, indicator: store.showsIndicator)
+  }
+
+  /// SwiftUI animates the shape, so the window grows at once and shrinks only after the shape has.
+  private func resize() {
+    guard let frame = target() else { return }
+    generation += 1
+    let current = generation
+    panel.setFrame(panel.frame.union(frame), display: true)
+    Task {
+      try? await Task.sleep(for: .milliseconds(600))
+      if current == generation, let frame = target() { panel.setFrame(frame, display: true) }
     }
   }
 
@@ -134,8 +141,8 @@ struct Notch {
       panel.orderOut(nil)
       panel.orderFrontRegardless()
     }
-    withAnimation(.easeInOut(duration: 0.22)) { store.expanded = expanded }
-    place(animated: true)
+    withAnimation(expanded ? .open : .close) { store.expanded = expanded }
+    resize()
     if expanded { store.opened() }
   }
 }
