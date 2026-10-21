@@ -238,7 +238,7 @@ export default Plugin.define({
             ? `, a new git worktree of ${row.source} on branch ${row.branch}`
             : "";
           return {
-            content: `Worker #${row.id} will run in ${row.directory}${worktree}, session ${row.sessionID}. Its report will arrive here when it finishes.`,
+            content: `Worker #${row.id} is queued to run in ${row.directory}${worktree}, session ${row.sessionID}. It hasn't started yet, and its report will arrive here.`,
           };
         },
       });
