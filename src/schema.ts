@@ -35,6 +35,8 @@ export const outbox = sqliteTable("outbox", {
   state: text({ enum: ["pending", "sent"] }).notNull(),
   // The dot that wrote a dot_message. Null for reminders and worker reports.
   fromDot: text("from_dot"),
+  // Typed by the owner in the notch app, as opposed to a notice from open-dot.
+  fromOwner: integer("from_owner", { mode: "boolean" }).notNull().default(false),
   createdAt: integer("created_at").notNull(),
 });
 

@@ -1,9 +1,12 @@
 #!/usr/bin/env bun
+import { randomBytes } from "node:crypto";
+import { renameSync, writeFileSync } from "node:fs";
 import { Effect, Schedule } from "effect";
+import { api } from "./api";
 import { claimDue, hasWork, step } from "./daemon";
 import { openDatabase } from "./db";
 import { createDot, ensureSession, listDots, pickDot } from "./dots";
-import { databasePath } from "./home";
+import { apiPath, databasePath } from "./home";
 import { OpenCode } from "./opencode";
 
 const usage = `Usage:
@@ -50,7 +53,24 @@ const tick = Effect.suspend(() => {
   return step(db).pipe(Effect.provide(OpenCode.layer), Effect.catch(report));
 });
 
+/** Serves the notch app's API on a fresh port and token, then saves both where only the owner can read them. */
+const serve = Effect.sync(() => {
+  const token = randomBytes(32).toString("hex");
+  const server = Bun.serve({
+    hostname: "127.0.0.1",
+    port: 0,
+    fetch: api(db, token, OpenCode.layer),
+  });
+  const temporary = `${apiPath()}.${process.pid}`;
+  writeFileSync(temporary, JSON.stringify({ url: `http://127.0.0.1:${server.port}`, token }), {
+    mode: 0o600,
+  });
+  renameSync(temporary, apiPath());
+  console.log(`open-dot API on http://127.0.0.1:${server.port}`);
+});
+
 const daemon = Effect.sync(() => console.log(`open-dot daemon watching ${databasePath()}`)).pipe(
+  Effect.andThen(serve),
   Effect.andThen(Effect.repeat(tick, Schedule.spaced("1 second"))),
 );
 

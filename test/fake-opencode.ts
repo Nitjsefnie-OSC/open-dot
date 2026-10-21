@@ -1,6 +1,7 @@
 import { Effect, Layer } from "effect";
 import {
   type Approval,
+  type Entry,
   OpenCode,
   OpenCodeError,
   type SessionInput,
@@ -20,6 +21,7 @@ export function fakeOpenCode() {
     active: new Set<string>(),
     turns: new Map<string, Turn>(),
     approvals: new Map<string, Approval>(),
+    history: new Map<string, Entry[]>(),
     create: "ok" as "ok" | "fail",
     prompt: "ok" as "ok" | "fail" | "lost",
   };
@@ -43,6 +45,8 @@ export function fakeOpenCode() {
     activeSessions: Effect.sync(() => new Set(state.active)),
     turnAfter: ({ sessionID }) => Effect.sync(() => state.turns.get(sessionID)),
     pendingApproval: (sessionID) => Effect.sync(() => state.approvals.get(sessionID)),
+    recentMessages: (sessionID, limit) =>
+      Effect.sync(() => (state.history.get(sessionID) ?? []).slice(-limit)),
   });
 
   return { state, layer };

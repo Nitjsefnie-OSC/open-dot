@@ -1,6 +1,6 @@
 import { AbsolutePath, OpenCode as Client, Session, SessionMessage } from "@opencode/client/effect";
 import { Service } from "@opencode/client/service";
-import { Context, Data, Effect, Layer } from "effect";
+import { Context, Data, DateTime, Effect, Layer } from "effect";
 import { FetchHttpClient, HttpClient, HttpClientRequest } from "effect/http";
 
 export class OpenCodeError extends Data.TaggedError("OpenCodeError")<{
@@ -114,6 +114,42 @@ export interface Approval {
   readonly resources: readonly string[];
 }
 
+/** A user or assistant message in a session's history. */
+export interface Entry {
+  readonly id: string;
+  readonly role: "user" | "assistant";
+  readonly text: string;
+  /** Names of the tools an assistant message called. */
+  readonly tools: readonly string[];
+  readonly time: number;
+}
+
+const entry = (item: SessionMessage.Info): Entry[] =>
+  item.type === "user"
+    ? [
+        {
+          id: item.id,
+          role: "user",
+          text: item.text,
+          tools: [],
+          time: DateTime.toEpochMillis(item.time.created),
+        },
+      ]
+    : item.type === "assistant"
+      ? [
+          {
+            id: item.id,
+            role: "assistant",
+            text: item.content
+              .flatMap((part) => (part.type === "text" ? [part.text] : []))
+              .join("\n")
+              .trim(),
+            tools: item.content.flatMap((part) => (part.type === "tool" ? [part.name] : [])),
+            time: DateTime.toEpochMillis(item.time.created),
+          },
+        ]
+      : [];
+
 /** The few OpenCode calls open-dot makes. Absence is a value, every other failure is an OpenCodeError. */
 export class OpenCode extends Context.Service<
   OpenCode,
@@ -134,6 +170,11 @@ export class OpenCode extends Context.Service<
     readonly pendingApproval: (
       sessionID: string,
     ) => Effect.Effect<Approval | undefined, OpenCodeError>;
+    /** User and assistant messages among the session's last `limit` history items, oldest first. */
+    readonly recentMessages: (
+      sessionID: string,
+      limit: number,
+    ) => Effect.Effect<readonly Entry[], OpenCodeError>;
   }
 >()("open-dot/OpenCode") {
   static readonly layer = Layer.effect(
@@ -240,6 +281,11 @@ export class OpenCode extends Context.Service<
                 : undefined,
             ),
             Effect.mapError(failed(`Could not list permission requests for ${sessionID}`)),
+          ),
+        recentMessages: (sessionID, limit) =>
+          client.message.list({ sessionID: Session.ID.make(sessionID), order: "desc", limit }).pipe(
+            Effect.map((page) => page.data.flatMap(entry).toReversed()),
+            Effect.mapError(failed(`Could not read session ${sessionID}`)),
           ),
       };
     }),

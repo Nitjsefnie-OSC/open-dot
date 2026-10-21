@@ -57,6 +57,13 @@
       "when": 1792552893219,
       "tag": "0007_dot_messages",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "6",
+      "when": 1792554529272,
+      "tag": "0008_owner_messages",
+      "breakpoints": true
     }
   ]
 }

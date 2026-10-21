@@ -1,0 +1,1 @@
+ALTER TABLE `outbox` ADD `from_owner` integer DEFAULT false NOT NULL;
