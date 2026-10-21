@@ -37,14 +37,10 @@ function workingDirectory(dot: string, requested: string | undefined) {
 
 /** The top of the git repository that contains a directory, if there is one. */
 function repository(directory: string) {
-  try {
-    const git = Bun.spawnSync(["git", "-C", directory, "rev-parse", "--show-toplevel"], {
-      stderr: "ignore",
-    });
-    return git.success ? realpathSync(git.stdout.toString().trim()) : undefined;
-  } catch {
-    return undefined;
-  }
+  const git = Bun.spawnSync(["git", "-C", directory, "rev-parse", "--show-toplevel"], {
+    stderr: "ignore",
+  });
+  return git.success ? realpathSync(git.stdout.toString().trim()) : undefined;
 }
 
 const onBranch = (worker: { branch: string | null }) =>
