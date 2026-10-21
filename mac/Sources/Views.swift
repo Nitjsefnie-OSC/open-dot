@@ -3,6 +3,7 @@ import SwiftUI
 
 let expandedSize = CGSize(width: 520, height: 440)
 let earWidth: CGFloat = 26
+let messageBlue = Color(red: 10 / 255, green: 132 / 255, blue: 1)
 
 struct RootView: View {
   @Bindable var store: Store
@@ -179,12 +180,12 @@ struct MessageRow: View {
     case "owner":
       HStack {
         Spacer(minLength: 60)
-        Bubble(text: message.text, shade: 0.18)
+        Bubble(text: message.text, fill: messageBlue)
       }
     case "dot":
       HStack {
         VStack(alignment: .leading, spacing: 3) {
-          if !message.text.isEmpty { Bubble(text: message.text, shade: 0.08) }
+          if !message.text.isEmpty { Bubble(text: message.text, fill: .white.opacity(0.08)) }
           if let tools = message.tools, !tools.isEmpty {
             Text("used \(tools.joined(separator: ", "))").font(.caption2).foregroundStyle(.tertiary)
           }
@@ -213,7 +214,7 @@ struct PendingRow: View {
     HStack {
       Spacer(minLength: 60)
       VStack(alignment: .trailing, spacing: 3) {
-        Bubble(text: item.text, shade: 0.18).opacity(0.6)
+        Bubble(text: item.text, fill: messageBlue).opacity(0.6)
         if let error = item.error {
           Text("\(error) · click to dismiss").font(.caption2).foregroundStyle(.red)
         } else {
@@ -226,14 +227,14 @@ struct PendingRow: View {
 
 struct Bubble: View {
   let text: String
-  let shade: Double
+  let fill: Color
 
   var body: some View {
     Text(markdown(text))
       .textSelection(.enabled)
       .padding(.horizontal, 10)
       .padding(.vertical, 6)
-      .background(RoundedRectangle(cornerRadius: 12).fill(.white.opacity(shade)))
+      .background(RoundedRectangle(cornerRadius: 12).fill(fill))
   }
 
   private func markdown(_ text: String) -> AttributedString {
