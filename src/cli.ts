@@ -36,7 +36,9 @@ const list = Effect.sync(() => {
   const all = listDots(db);
   if (all.length === 0) return console.log("No dots yet. Run: open-dot create <name>");
   for (const dot of all)
-    console.log(`${dot.name}\t${dot.sessionState}\t${dot.sessionID}\t${dot.directory}`);
+    console.log(
+      `${dot.name}\t${dot.sessionState}\t${dot.sessionID}\t${dot.directory}\t${dot.purpose ?? ""}`,
+    );
 });
 
 const report = (error: { readonly message: string }) =>
