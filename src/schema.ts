@@ -6,6 +6,8 @@ export const dots = sqliteTable("dots", {
   sessionID: text("session_id").notNull(),
   // "creating" means the session ID is saved but OpenCode has not confirmed the session yet.
   sessionState: text("session_state", { enum: ["creating", "ready"] }).notNull(),
+  // What the dot is for, as given at creation. Other dots see it. Older dots have none.
+  purpose: text(),
   createdAt: integer("created_at").notNull(),
 });
 
@@ -31,6 +33,8 @@ export const outbox = sqliteTable("outbox", {
   messageID: text("message_id").notNull().unique(),
   text: text().notNull(),
   state: text({ enum: ["pending", "sent"] }).notNull(),
+  // The dot that wrote a dot_message. Null for reminders and worker reports.
+  fromDot: text("from_dot"),
   createdAt: integer("created_at").notNull(),
 });
 

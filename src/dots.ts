@@ -47,6 +47,7 @@ export function createDot(db: Db, name: string, purpose: string) {
     directory,
     sessionID: Session.ID.create(),
     sessionState: "creating",
+    purpose,
     createdAt: Date.now(),
   };
   db.insert(dots).values(dot).run();
