@@ -63,4 +63,26 @@ cd mac && swift build -c release && .build/release/open-dot-notch
 
 Hover over the notch to open the panel: pick a dot, read its conversation, see its unfinished workers, and type to it. Enter sends. The panel closes shortly after the mouse leaves, and keeps your draft. A dot beside the notch shows that a dot is busy or has something new. Right-click the open panel to quit.
 
+To start the app at login, save a second launch agent as `~/Library/LaunchAgents/com.opzero1.open-dot.notch.plist`:
+
+```xml
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key><string>com.opzero1.open-dot.notch</string>
+  <key>ProgramArguments</key>
+  <array><string>/path/to/open-dot/mac/.build/release/open-dot-notch</string></array>
+  <key>RunAtLoad</key><true/>
+  <key>KeepAlive</key><dict><key>SuccessfulExit</key><false/></dict>
+  <key>ProcessType</key><string>Interactive</string>
+  <key>LimitLoadToSessionType</key><string>Aqua</string>
+  <key>StandardOutPath</key><string>/Users/you/.opendot/notch.log</string>
+  <key>StandardErrorPath</key><string>/Users/you/.opendot/notch.log</string>
+</dict>
+</plist>
+```
+
+Load it the same way. It restarts the app if it crashes, but not after you quit it. After rebuilding, restart it with `launchctl kickstart -k gui/$(id -u)/com.opzero1.open-dot.notch`.
+
 open-dot keeps its data in `~/.opendot`. Set `OPEN_DOT_HOME` to use another directory.
