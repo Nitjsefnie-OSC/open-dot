@@ -1,11 +1,11 @@
 import { existsSync, mkdirSync, realpathSync, statSync } from "node:fs";
-import { isAbsolute } from "node:path";
+import { isAbsolute, join, relative } from "node:path";
 import { Session } from "@opencode/client/effect";
 import { Plugin } from "@opencode/plugin";
 import { and, asc, eq, ne } from "drizzle-orm";
 import { Schema } from "effect";
 import { type Db, openDatabase } from "./db";
-import { databasePath, workDirectory } from "./home";
+import { databasePath, workDirectory, worktreeDirectory } from "./home";
 import { dots, notes, reminders, responsibilities, workers } from "./schema";
 
 const text = (description: string) => Schema.String.annotate({ description });
@@ -34,6 +34,21 @@ function workingDirectory(dot: string, requested: string | undefined) {
   }
   return realpathSync(requested);
 }
+
+/** The top of the git repository that contains a directory, if there is one. */
+function repository(directory: string) {
+  try {
+    const git = Bun.spawnSync(["git", "-C", directory, "rev-parse", "--show-toplevel"], {
+      stderr: "ignore",
+    });
+    return git.success ? realpathSync(git.stdout.toString().trim()) : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+const onBranch = (worker: { branch: string | null }) =>
+  worker.branch ? ` on branch ${worker.branch}` : "";
 
 const when = (reminder: { dueAt: number; everyMinutes: number | null }) =>
   new Date(reminder.dueAt).toString() +
@@ -71,7 +86,7 @@ ${list(saved.map((note) => `- #${note.id}: ${note.text}`))}
 ${list(active.map((item) => `- #${item.id}: ${item.goal}. Next: ${item.nextAction}`))}
 
 ## Unfinished workers (dot_delegate starts one; its report arrives here as a message)
-${list(unfinished.map((worker) => `- #${worker.id} ${worker.state}, session ${worker.sessionID} in ${worker.directory}: ${worker.task.split("\n")[0]}`))}
+${list(unfinished.map((worker) => `- #${worker.id} ${worker.state}, session ${worker.sessionID} in ${worker.directory}${onBranch(worker)}: ${worker.task.split("\n")[0]}`))}
 
 ## Scheduled reminders (dot_remind schedules, dot_cancel cancels)
 ${list(scheduled.map((reminder) => `- #${reminder.id} at ${when(reminder)}: ${reminder.text}`))}
@@ -181,7 +196,7 @@ export default Plugin.define({
       editor.add({
         name: "dot_delegate",
         description:
-          "Hand substantial work, such as research, code changes or any multi-step task, to a worker in its own OpenCode session so you stay available. Its report arrives in this conversation as a message when it finishes.",
+          "Hand substantial work, such as research, code changes or any multi-step task, to a worker in its own OpenCode session so you stay available. Its report arrives in this conversation as a message when it finishes. In a git repository, the worker gets its own worktree on a new branch made from the current HEAD. It works apart from the original checkout and doesn't see that checkout's uncommitted changes.",
         input: Schema.Struct({
           task: text(
             "Everything the worker needs: the goal, context, constraints and what to report. It cannot see this conversation",
@@ -195,20 +210,35 @@ export default Plugin.define({
         options: { codemode: false },
         execute: async (input) => {
           const directory = workingDirectory(name, input.directory);
-          const row = db
-            .insert(workers)
-            .values({
-              dot: name,
-              task: input.task,
-              directory,
-              sessionID: Session.ID.create(),
-              state: "creating",
-              createdAt: Date.now(),
-            })
-            .returning()
-            .get();
+          const source = input.directory === undefined ? undefined : repository(directory);
+          // One transaction, so the daemon never sees the worker before its worktree is planned.
+          const row = db.transaction((tx) => {
+            const inserted = tx
+              .insert(workers)
+              .values({
+                dot: name,
+                task: input.task,
+                directory,
+                sessionID: Session.ID.create(),
+                state: "creating",
+                createdAt: Date.now(),
+              })
+              .returning()
+              .get();
+            if (!source) return inserted;
+            const planned = {
+              directory: join(worktreeDirectory(name, inserted.id), relative(source, directory)),
+              source,
+              branch: `dot/${name}-${inserted.id}`,
+            };
+            tx.update(workers).set(planned).where(eq(workers.id, inserted.id)).run();
+            return { ...inserted, ...planned };
+          });
+          const worktree = row.source
+            ? `, a new git worktree of ${row.source} on branch ${row.branch}`
+            : "";
           return {
-            content: `Worker #${row.id} will run in ${directory}, session ${row.sessionID}. Its report will arrive here when it finishes.`,
+            content: `Worker #${row.id} will run in ${row.directory}${worktree}, session ${row.sessionID}. Its report will arrive here when it finishes.`,
           };
         },
       });

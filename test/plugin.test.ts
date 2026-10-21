@@ -1,12 +1,12 @@
 import { beforeEach, expect, test } from "bun:test";
-import { mkdtempSync } from "node:fs";
+import { mkdirSync, mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Plugin } from "@opencode/plugin";
 import { Effect } from "effect";
 import { openDatabase } from "../src/db";
 import { createDot } from "../src/dots";
-import { databasePath } from "../src/home";
+import { databasePath, home } from "../src/home";
 import plugin from "../src/plugin";
 
 interface FakeTool {
@@ -118,8 +118,14 @@ test("a delegated task waits as an unfinished worker in the dot's memory", async
     true,
   );
   await loaded.call("dot_delegate", { task: "Summarize the README." });
+  const repo = join(home(), "repo");
+  mkdirSync(join(repo, "src"), { recursive: true });
+  Bun.spawnSync(["git", "init", "-q", repo]);
+  await loaded.call("dot_delegate", { task: "Fix the bug.", directory: join(repo, "src") });
 
-  expect(loaded.injected(dot.sessionID)).toContain("#1 creating");
-  expect(loaded.injected(dot.sessionID)).toContain("Summarize the README.");
+  const memory = loaded.injected(dot.sessionID);
+  expect(memory).toContain("#1 creating");
+  expect(memory).toContain("Summarize the README.");
+  expect(memory).toContain(`${join(home(), "worktrees/jojo/2/src")} on branch dot/jojo-2`);
   await loaded.cleanup?.();
 });
