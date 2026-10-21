@@ -29,12 +29,12 @@ This project is a fresh, small rebuild of [open-bot](https://github.com/affddn/o
 
 One `plugins` entry in the OpenCode config loads both plugins. The server plugin stays inert outside a dot's directory.
 
-| Part          | Runs in              | Job                                                                                                                                |
-| ------------- | -------------------- | ---------------------------------------------------------------------------------------------------------------------------------- |
-| CLI           | `open-dot …`         | Create, list and open dots, and run the daemon.                                                                                    |
-| Server plugin | OpenCode service     | Provides the tools a dot calls, such as `dot_remind`, `dot_note`, `dot_track` and `dot_delegate`. It writes only to open-dot's DB. |
-| Daemon        | `open-dot daemon`    | The single owner of timers and workers. It starts worker sessions, watches them, and sends every message through the outbox.       |
-| TUI plugin    | OpenCode terminal UI | Shows each dot and its recent workers in the sidebar and provides `/dot` and palette commands. It reads the DB read-only.          |
+| Part          | Runs in              | Job                                                                                                                                   |
+| ------------- | -------------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
+| CLI           | `open-dot …`         | Create, list and open dots, and run the daemon.                                                                                       |
+| Server plugin | OpenCode service     | Provides the tools a dot calls, such as `dot_remind`, `dot_track`, `dot_delegate` and `dot_message`. It writes only to open-dot's DB. |
+| Daemon        | `open-dot daemon`    | The single owner of timers and workers. It starts worker sessions, watches them, and sends every message through the outbox.          |
+| TUI plugin    | OpenCode terminal UI | Shows each dot and its recent workers in the sidebar and provides `/dot` and palette commands. It reads the DB read-only.             |
 
 The daemon, not the plugin, owns timers for two reasons. A plugin runs only while its location is loaded, while the daemon can wake a dot whenever the OpenCode service is up. The daemon is also the future host for the web client and connectors, which is how you'll talk to a dot from anywhere.
 
@@ -43,6 +43,8 @@ Every message the daemon sends goes through the `outbox` table. A producer, such
 A worker is a top-level OpenCode session, because a child session cannot have its own directory. `dot_delegate` saves the worker and its `ses_` ID. The daemon creates the session, queues the task, tells the dot once about each pending approval, and queues one report when the first turn after the task goes idle.
 
 A worker given a directory inside a git repository gets its own worktree, so workers never share a checkout. `dot_delegate` records the repository and a new branch, `dot/<name>-<id>`, in the same transaction that saves the worker. Before creating the session, the daemon adds the worktree from the repository's current HEAD. If git can't add it, the worker ends as failed and the dot gets one report. Worktrees are kept after the worker finishes, so its branch can be reviewed or merged; remove them with `git worktree remove`.
+
+Dots message each other with `dot_message`. Each dot's memory lists the other dots and the purpose each was created with. The plugin inserts the message straight into the outbox, addressed to the other dot's session and recorded with the sender, and the daemon delivers it like any other message. The message is framed as data from another dot, not instructions from the owner, and asks for no reply that only acknowledges or thanks. To stop two dots from keeping each other busy, a dot can send at most 10 messages per rolling hour, counted from the outbox.
 
 Dot and worker sessions are created with `ask` rules for destructive shell commands, such as `rm`, force pushes and hard resets. Everything else follows the owner's OpenCode permissions, which allow all by default. The list is best effort: a pattern list can't catch every destructive command.
 
