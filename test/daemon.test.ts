@@ -1,8 +1,12 @@
 import { beforeEach, expect, test } from "bun:test";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { eq } from "drizzle-orm";
 import { Effect } from "effect";
 import { claimDue, step } from "../src/daemon";
 import { type Db, openDatabase } from "../src/db";
+import { worktreeDirectory } from "../src/home";
 import { dots, outbox, reminders, workers } from "../src/schema";
 import { fakeOpenCode } from "./fake-opencode";
 
@@ -34,6 +38,11 @@ const tick = (now: number) => {
   claimDue(db, now);
   return Effect.runPromise(Effect.provide(step(db), fake.layer));
 };
+
+const git = (cwd: string, ...args: string[]) =>
+  Bun.spawnSync(["git", "-C", cwd, ...args])
+    .stdout.toString()
+    .trim();
 
 const reminder = (id: number) => db.select().from(reminders).where(eq(reminders.id, id)).get();
 const messages = () => db.select().from(outbox).all();
@@ -138,4 +147,51 @@ test("a worker gets one session and task, and its dot hears once per approval an
     expect.stringContaining("There are 3 files."),
   ]);
   expect(db.select().from(workers).get()?.state).toBe("done");
+});
+
+test("a worker in a git repo gets its own worktree, and one whose branch is taken fails once", async () => {
+  const temp = mkdtempSync(join(tmpdir(), "open-dot-"));
+  process.env.OPEN_DOT_HOME = join(temp, "home");
+  const repo = join(temp, "repo");
+  mkdirSync(join(repo, "src"), { recursive: true });
+  writeFileSync(join(repo, "src", "a.txt"), "a");
+  git(repo, "init", "-q");
+  git(repo, "add", "-A");
+  git(repo, "-c", "user.name=test", "-c", "user.email=test@example.com", "commit", "-qm", "init");
+  git(repo, "branch", "dot/jojo-2");
+  const worker = (id: number) => ({
+    id,
+    dot: "jojo",
+    task: `Task ${id}.`,
+    directory: join(worktreeDirectory("jojo", id), "src"),
+    source: repo,
+    branch: `dot/jojo-${id}`,
+    sessionID: `ses_w${id}`,
+    state: "creating" as const,
+    createdAt: 0,
+  });
+  db.insert(workers)
+    .values([worker(1), worker(2)])
+    .run();
+
+  await tick(1);
+  await tick(2);
+
+  const root = worktreeDirectory("jojo", 1);
+  expect(git(root, "branch", "--show-current")).toBe("dot/jojo-1");
+  expect(fake.state.created.map((session) => session.directory)).toEqual([join(root, "src")]);
+  expect(fake.state.texts.find((sent) => sent.sessionID === "ses_w1")?.text).toContain(
+    "branch dot/jojo-1",
+  );
+  expect(db.select().from(workers).where(eq(workers.id, 2)).get()).toMatchObject({
+    state: "done",
+    outcome: "failed",
+  });
+  expect(fake.state.texts.filter((sent) => sent.sessionID === "ses_jojo")).toEqual([
+    { sessionID: "ses_jojo", text: expect.stringContaining("Worker #2 could not start") },
+  ]);
+  expect(git(repo, "status", "--porcelain")).toBe("");
+
+  delete process.env.OPEN_DOT_HOME;
+  rmSync(temp, { recursive: true, force: true });
 });

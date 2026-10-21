@@ -9,3 +9,7 @@ export const dotDirectory = (name: string) => join(home(), "dots", name);
 
 /** Where a dot's workers run when it names no directory. Outside dots/, so workers get no dot tools. */
 export const workDirectory = (name: string) => join(home(), "work", name);
+
+/** The git worktree of a worker that runs in a repository. */
+export const worktreeDirectory = (dot: string, id: number) =>
+  join(home(), "worktrees", dot, String(id));
