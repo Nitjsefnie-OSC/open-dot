@@ -1,4 +1,5 @@
-import { existsSync, mkdirSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync } from "node:fs";
+import { join } from "node:path";
 import { SessionMessage } from "@opencode/client/effect";
 import { and, asc, eq, isNull, lte, ne } from "drizzle-orm";
 import { Effect } from "effect";
@@ -149,7 +150,14 @@ function prepareWorktree(worker: Worker) {
   if (!worker.source || !worker.branch) return undefined;
   const root = worktreeDirectory(worker.dot, worker.id);
   try {
-    if (!existsSync(root)) {
+    if (existsSync(root)) {
+      // git locks a new worktree until its checkout finishes, so a leftover lock means an interrupted add.
+      const gitdir = readFileSync(join(root, ".git"), "utf8")
+        .replace(/^gitdir: /, "")
+        .trim();
+      if (existsSync(join(gitdir, "locked")))
+        return `an interrupted attempt left ${root} incomplete`;
+    } else {
       const git = Bun.spawnSync(
         ["git", "-C", worker.source, "worktree", "add", "-b", worker.branch, root, "HEAD"],
         { stdout: "ignore", stderr: "pipe" },

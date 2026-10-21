@@ -149,7 +149,7 @@ test("a worker gets one session and task, and its dot hears once per approval an
   expect(db.select().from(workers).get()?.state).toBe("done");
 });
 
-test("a worker in a git repo gets its own worktree, and one whose branch is taken fails once", async () => {
+test("a worker in a git repo gets its own worktree, and one that can't get a whole one fails once", async () => {
   const temp = mkdtempSync(join(tmpdir(), "open-dot-"));
   process.env.OPEN_DOT_HOME = join(temp, "home");
   const repo = join(temp, "repo");
@@ -170,8 +170,11 @@ test("a worker in a git repo gets its own worktree, and one whose branch is take
     state: "creating" as const,
     createdAt: 0,
   });
+  // Worker 3's worktree is still locked, as git leaves it when killed mid-checkout.
+  git(repo, "worktree", "add", "-q", "-b", "dot/jojo-3", worktreeDirectory("jojo", 3), "HEAD");
+  git(repo, "worktree", "lock", worktreeDirectory("jojo", 3));
   db.insert(workers)
-    .values([worker(1), worker(2)])
+    .values([worker(1), worker(2), worker(3)])
     .run();
 
   await tick(1);
@@ -183,12 +186,15 @@ test("a worker in a git repo gets its own worktree, and one whose branch is take
   expect(fake.state.texts.find((sent) => sent.sessionID === "ses_w1")?.text).toContain(
     "branch dot/jojo-1",
   );
-  expect(db.select().from(workers).where(eq(workers.id, 2)).get()).toMatchObject({
-    state: "done",
-    outcome: "failed",
-  });
+  for (const id of [2, 3]) {
+    expect(db.select().from(workers).where(eq(workers.id, id)).get()).toMatchObject({
+      state: "done",
+      outcome: "failed",
+    });
+  }
   expect(fake.state.texts.filter((sent) => sent.sessionID === "ses_jojo")).toEqual([
     { sessionID: "ses_jojo", text: expect.stringContaining("Worker #2 could not start") },
+    { sessionID: "ses_jojo", text: expect.stringContaining("Worker #3 could not start") },
   ]);
   expect(git(repo, "status", "--porcelain")).toBe("");
 
