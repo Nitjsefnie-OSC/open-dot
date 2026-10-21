@@ -24,6 +24,7 @@ This project is a fresh, small rebuild of [open-bot](https://github.com/affddn/o
   open-dot.db                            SQLite (Drizzle): dots, notes, reminders, responsibilities, workers, outbox
   dots/<name>/AGENTS.md                  the dot's personality and purpose (plain OpenCode instructions)
   work/<name>/                           the default directory for a dot's workers
+  worktrees/<name>/<id>/                 the git worktree of a worker that runs in a repository
 ```
 
 One `plugins` entry in the OpenCode config loads both plugins. The server plugin stays inert outside a dot's directory.
@@ -40,6 +41,8 @@ The daemon, not the plugin, owns timers for two reasons. A plugin runs only whil
 Every message the daemon sends goes through the `outbox` table. A producer, such as a due reminder or a finished worker, inserts the message with a fresh `msg_` ID in the same transaction as its own state change. Delivery then checks for that ID before sending, so a lost outcome is confirmed rather than repeated.
 
 A worker is a top-level OpenCode session, because a child session cannot have its own directory. `dot_delegate` saves the worker and its `ses_` ID. The daemon creates the session, queues the task, tells the dot once about each pending approval, and queues one report when the first turn after the task goes idle.
+
+A worker given a directory inside a git repository gets its own worktree, so workers never share a checkout. `dot_delegate` records the repository and a new branch, `dot/<name>-<id>`, in the same transaction that saves the worker. Before creating the session, the daemon adds the worktree from the repository's current HEAD. If git can't add it, the worker ends as failed and the dot gets one report. Worktrees are kept after the worker finishes, so its branch can be reviewed or merged; remove them with `git worktree remove`.
 
 Dot and worker sessions are created with `ask` rules for destructive shell commands, such as `rm`, force pushes and hard resets. Everything else follows the owner's OpenCode permissions, which allow all by default. The list is best effort: a pattern list can't catch every destructive command.
 
