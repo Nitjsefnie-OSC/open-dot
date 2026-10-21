@@ -64,6 +64,9 @@ export const workers = sqliteTable("workers", {
     .references(() => dots.name),
   task: text().notNull(),
   directory: text().notNull(),
+  // A worker in a git repo gets its own worktree of `source` on `branch`, created before its session.
+  source: text(),
+  branch: text(),
   sessionID: text("session_id").notNull(),
   // "creating" means the session ID is saved but OpenCode has not confirmed the session yet.
   state: text({ enum: ["creating", "running", "done"] }).notNull(),

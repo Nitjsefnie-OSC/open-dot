@@ -43,6 +43,13 @@
       "when": 1792520570717,
       "tag": "0005_workers",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "6",
+      "when": 1792550411668,
+      "tag": "0006_worker_worktrees",
+      "breakpoints": true
     }
   ]
 }
