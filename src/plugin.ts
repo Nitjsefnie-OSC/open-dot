@@ -317,7 +317,10 @@ export default Plugin.define({
           text: text("The message. The other dot cannot see this conversation"),
         }),
         options: { codemode: false },
-        execute: async (input) => {
+        execute: async (input, call) => {
+          // Other dots see this dot as the sender and reply into its session, so only that session may send.
+          if (call.sessionID !== dot.sessionID)
+            throw new Error(`Only ${name}'s own conversation can message other dots.`);
           if (input.to === name) throw new Error("You can't message yourself.");
           const target = db.select().from(dots).where(eq(dots.name, input.to)).get();
           if (!target) throw new Error(`No dot named "${input.to}". Your memory lists the others.`);
