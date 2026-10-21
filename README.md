@@ -28,4 +28,29 @@ In the OpenCode TUI, `/dot [name]` opens a dot too, and the sidebar lists your d
 
 Keep `bun src/cli.ts daemon` running. It delivers due reminders, starts and watches workers, and brings their reports back into the dot's conversation.
 
+On macOS, a launch agent starts the daemon at login and restarts it if it exits. Save this as `~/Library/LaunchAgents/com.opzero1.open-dot.daemon.plist`, with your own paths:
+
+```xml
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key><string>com.opzero1.open-dot.daemon</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/path/to/bun</string>
+    <string>/path/to/open-dot/src/cli.ts</string>
+    <string>daemon</string>
+  </array>
+  <key>WorkingDirectory</key><string>/path/to/open-dot</string>
+  <key>RunAtLoad</key><true/>
+  <key>KeepAlive</key><true/>
+  <key>StandardOutPath</key><string>/Users/you/.opendot/daemon.log</string>
+  <key>StandardErrorPath</key><string>/Users/you/.opendot/daemon.log</string>
+</dict>
+</plist>
+```
+
+Load it with `launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.opzero1.open-dot.daemon.plist`. The daemon keeps running the code it started with, so after pulling changes restart it with `launchctl kickstart -k gui/$(id -u)/com.opzero1.open-dot.daemon`.
+
 open-dot keeps its data in `~/.opendot`. Set `OPEN_DOT_HOME` to use another directory.
