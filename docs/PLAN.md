@@ -36,7 +36,7 @@ One `plugins` entry in the OpenCode config loads both plugins. The server plugin
 | Daemon        | `open-dot daemon`    | The single owner of timers and workers. It starts worker sessions, watches them, and sends every message through the outbox.          |
 | TUI plugin    | OpenCode terminal UI | Shows each dot and its recent workers in the sidebar and provides `/dot` and palette commands. It reads the DB read-only.             |
 
-The daemon, not the plugin, owns timers for two reasons. A plugin runs only while its location is loaded, while the daemon can wake a dot whenever the OpenCode service is up. The daemon is also the future host for the web client and connectors, which is how you'll talk to a dot from anywhere.
+The daemon, not the plugin, owns timers for two reasons. A plugin runs only while its location is loaded, while the daemon can wake a dot whenever the OpenCode service is up. The daemon is also the host for the notch app and connectors, which is how you'll talk to a dot from anywhere.
 
 Every message the daemon sends goes through the `outbox` table. A producer, such as a due reminder or a finished worker, inserts the message with a fresh `msg_` ID in the same transaction as its own state change. Delivery then checks for that ID before sending, so a lost outcome is confirmed rather than repeated.
 
@@ -68,16 +68,20 @@ Each milestone is a shippable vertical slice, tracked as a GitHub issue. Verify 
 2. **It follows up.** Add the `dot_remind` and `dot_note` tools and the daemon. Due reminders are queued into the dot's session with deterministic `msg_` IDs. Reminders survive a restart, and an unknown delivery is reconciled by ID, never duplicated.
 3. **It delegates.** Add responsibilities, each with a goal, a next action and a status. The dot hands substantial work to worker sessions, tracks them, and brings a linked summary back into its conversation. It also gets a simple recurring schedule.
 4. **Dots talk to each other.** Several specialist dots can message each other, and replies are treated as untrusted data.
-5. **Talk to it anywhere.** Add a thin web client ("Jojo") served by the daemon, with linked replies and delegated-task cards, and then Slack as the first connector, controlled by the owner only.
+5. **Talk to it from the notch.** The daemon serves a small local API, and a thin native macOS app talks to it. Hovering over the notch opens a panel where you pick a dot, read its conversation, type to it, and see worker results arrive.
+6. **A feed in the notch.** The daemon collects what needs your attention from GitHub and Linear, such as review requests, mentions and assigned issues, and the notch shows it as a live, Twitch-style stream you can act on. Feed items reach a dot only as data.
+7. **Slack.** Talk to a dot from Slack, and only the owner can instruct it there. The dot also watches your Slack mentions and DMs as untrusted input, and they join the notch feed.
 
 ## Deferred or dropped
 
-- **Deferred:** supervising existing sessions, rich goal and planning views, a notification inbox, voice, native mobile and remote executors.
+- **Deferred:** supervising existing sessions, rich goal and planning views, voice, native mobile and remote executors.
 - **Dropped:** open-bot's governance control plane, coordinator ownership epochs, workflow VM, duplicate chat UIs, Python fixtures and vendored lint plugins.
 
 ## Decisions
 
-- **The thin web client comes before Slack.**
+- **The client is a thin native macOS app in the notch,** not a web client. It holds no state of its own and talks only to the daemon. It comes before Slack.
+- **The first notch version shows the notification feed as well as dot chat.** The feed shows things that need your attention, not every event.
+- **Slack does two jobs:** it's a way to talk to your dots, and a source the dots watch for you.
 - **Dots run only on this Mac for now.** An always-on host can come later.
 - **A dot may do anything except destructive actions without asking,** like Grok Bot, Codex or pi-durable. Destructive actions, such as deleting files, force pushes or hard resets, still ask the owner.
 
