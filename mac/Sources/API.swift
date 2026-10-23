@@ -323,6 +323,33 @@ struct MemoryNote: Decodable, Equatable, Identifiable {
   let updatedAt: Double
   let updatedBy: String
   let text: String
+  var source: NoteSource? = nil
+}
+
+struct NoteSource: Decodable, Equatable {
+  let state: String
+  let sessionID: String?
+  let messageID: String?
+}
+
+struct NoteMatch: Decodable, Identifiable {
+  let id: Int
+  let snippet: String
+  let updatedAt: Double
+  let source: NoteSource
+}
+
+struct NoteEvidence: Decodable {
+  let source: NoteSource
+  let message: SourceMessage
+
+  struct SourceMessage: Decodable {
+    let id: String
+    let role: String
+    let text: String
+    let tools: [String]
+    let time: Double
+  }
 }
 
 struct MemoryResponsibility: Decodable, Equatable, Identifiable {
@@ -578,6 +605,17 @@ enum APIError: Error {
 
   func memory(_ dot: String) async throws -> Memory {
     try decode(Memory.self, await send("GET", "/dots/\(escape(dot))/memory"))
+  }
+
+  func searchNotes(_ dot: String, query: String) async throws -> [NoteMatch] {
+    struct Body: Decodable { let results: [NoteMatch] }
+    let unreserved = CharacterSet(charactersIn: "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~")
+    let encoded = query.addingPercentEncoding(withAllowedCharacters: unreserved) ?? ""
+    return try decode(Body.self, await send("GET", "/dots/\(escape(dot))/memory/notes/search?q=\(encoded)&limit=50")).results
+  }
+
+  func noteSource(_ dot: String, id: Int) async throws -> NoteEvidence {
+    try decode(NoteEvidence.self, await send("GET", "/dots/\(escape(dot))/memory/notes/\(id)/source"))
   }
 
   /// The dot's AGENTS.md, which the daemon reads only from that dot's own directory.

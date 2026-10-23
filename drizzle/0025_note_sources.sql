@@ -1,0 +1,1 @@
+ALTER TABLE `notes` ADD `source` text DEFAULT '{"state":"unknown"}' NOT NULL;

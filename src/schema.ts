@@ -276,12 +276,17 @@ export const hiddenMessages = sqliteTable(
   (table) => [primaryKey({ columns: [table.dot, table.sessionID, table.messageID] })],
 );
 
+export type NoteSource =
+  | { readonly state: "unknown" }
+  | { readonly state: "known"; readonly sessionID: string; readonly messageID: string };
+
 export const notes = sqliteTable("notes", {
   id: integer().primaryKey({ autoIncrement: true }),
   dot: text()
     .notNull()
     .references(() => dots.name),
   text: text().notNull(),
+  source: text({ mode: "json" }).$type<NoteSource>().notNull().default({ state: "unknown" }),
   createdAt: integer("created_at").notNull(),
   updatedAt: integer("updated_at"),
   ...versioned(),

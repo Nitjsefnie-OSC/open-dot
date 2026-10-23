@@ -1022,7 +1022,29 @@ struct MessageWindow: Equatable {
         let message = Self.describeMemory(error, "Not added", unknown: "It may have been added; it shows on the next refresh.")
         memories[name, default: MemoryState()].finishAdd(.failure(MemoryInvalid(message)))
       }
+      await refreshNoteSearch(name)
     }
+  }
+
+  func searchNotes(_ name: String) {
+    Task { await refreshNoteSearch(name) }
+  }
+
+  private func refreshNoteSearch(_ name: String) async {
+    let query = memories[name]?.noteQuery ?? ""
+    let read = memories[name, default: MemoryState()].startSearch()
+    do {
+      let matches: [NoteMatch]
+      if query.isEmpty { matches = [] } else { matches = try await api.searchNotes(name, query: query) }
+      memories[name]?.finishSearch(read, query: query, result: .success(matches))
+    } catch {
+      memories[name]?.finishSearch(read, query: query, result: .failure(MemoryInvalid(Self.describe(error))))
+    }
+  }
+
+  func noteSource(_ name: String, id: Int) async -> Result<NoteEvidence, MemoryInvalid> {
+    do { return .success(try await api.noteSource(name, id: id)) }
+    catch { return .failure(MemoryInvalid(Self.describe(error))) }
   }
 
   /// Opens the worker's session in a new terminal window. If none opens, the daemon copies the
@@ -1127,6 +1149,7 @@ struct MessageWindow: Equatable {
         let message = Self.describeMemory(error, "Not saved", unknown: "It may have been saved; the next refresh shows what the daemon has.")
         memories[name, default: MemoryState()].finish(key, .failed(message))
       }
+      await refreshNoteSearch(name)
     }
   }
 
@@ -1158,6 +1181,7 @@ struct MessageWindow: Equatable {
     do {
       let memory = try await api.memory(name)
       _ = memories[name, default: MemoryState()].apply(read, memory)
+      await refreshNoteSearch(name)
       await refreshAudit(name)
     } catch {
       guard memories[name]?.isCurrent(read) == true else { return }

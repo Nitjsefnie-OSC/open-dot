@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, ne } from "drizzle-orm";
+import { and, asc, desc, eq, ne, sql } from "drizzle-orm";
 import type { Db } from "./db";
 import {
   type Note,
@@ -32,7 +32,40 @@ const meta = (row: {
   updatedBy: row.updatedBy,
 });
 
-export const noteView = (row: Note) => ({ ...meta(row), text: row.text });
+export const noteView = (row: Note) => ({ ...meta(row), text: row.text, source: row.source });
+
+export function parseNoteSearch(query: unknown, limit: unknown = 10) {
+  if (typeof query !== "string" || query.length > 200)
+    return { invalid: "Send a query of at most 200 characters." } as const;
+  if (typeof limit !== "number" || !Number.isSafeInteger(limit) || limit < 1 || limit > 50)
+    return { invalid: "limit must be an integer from 1 to 50." } as const;
+  return { query: query.trim(), limit };
+}
+
+/** Canonical notes are the index: edits, deletes and reopening need no synchronization. */
+export function searchNotes(db: Db, dot: string, query: string, limit: number) {
+  const terms = query.toLowerCase().split(/\s+/).filter(Boolean);
+  const [first] = terms;
+  if (!first) return [];
+  return db
+    .select()
+    .from(notes)
+    .where(eq(notes.dot, dot))
+    .orderBy(desc(sql`coalesce(${notes.updatedAt}, ${notes.createdAt})`), desc(notes.id))
+    .all()
+    .filter((row) => terms.every((term) => row.text.toLowerCase().includes(term)))
+    .slice(0, limit)
+    .map((row) => {
+      const start = Math.max(0, row.text.toLowerCase().indexOf(first) - 40);
+      const excerpt = row.text.slice(start, start + 238);
+      return {
+        id: row.id,
+        snippet: `${start ? "…" : ""}${excerpt}${start + excerpt.length < row.text.length ? "…" : ""}`,
+        updatedAt: row.updatedAt ?? row.createdAt,
+        source: row.source,
+      };
+    });
+}
 
 export const responsibilityView = (row: Responsibility) => ({
   ...meta(row),

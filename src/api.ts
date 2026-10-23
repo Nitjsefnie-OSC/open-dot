@@ -27,9 +27,11 @@ import {
   type Outcome,
   parseNote,
   parseNoteEdit,
+  parseNoteSearch,
   parseReminderEdit,
   parseResponsibilityEdit,
   readMemory,
+  searchNotes,
 } from "./memory";
 import { type Attachment, OpenCode, type Entry, OpenCodeError } from "./opencode";
 import {
@@ -49,6 +51,7 @@ import {
   type FeedItem,
   type FeedSnapshot,
   hiddenMessages,
+  notes,
   type QuoteSnapshot,
   outbox,
   requests,
@@ -1019,12 +1022,39 @@ const supervisionRoute = (
   return error(404, "There's no such binding for this dot.");
 };
 
-/**
- * The owner's view and edits of a dot's notes, responsibilities and reminders. Every item is
- * scoped to the named dot, and every change needs the version the owner saw. Nothing here starts
- * a turn: the dot sees the result in its next memory snapshot. OpenCode isn't needed.
- */
-const memoryRoute = async (db: Db, request: Request, path: string[]) => {
+const noteSource = (db: Db, dot: Dot, id: number) =>
+  Effect.gen(function* () {
+    const key = and(eq(notes.dot, dot.name), eq(notes.id, id));
+    const note = db.select().from(notes).where(key).get();
+    if (!note) return error(404, "There's no such note for this dot.");
+    const { source } = note;
+    if (source.state === "unknown") return error(404, "This note's source is unknown.");
+    if (dot.sessionState !== "ready" || source.sessionID !== dot.sessionID)
+      return error(409, "The source belongs to a conversation this dot is no longer bound to.");
+    const message = yield* (yield* OpenCode).message(source);
+    if (rebound(db, dot)) return error(409, "The dot's conversation changed. Refresh.");
+    if (!db.select().from(notes).where(key).get()) return error(404, "The note is gone.");
+    if (!message || message.id !== source.messageID)
+      return error(404, "The source message is gone or unavailable in this session.");
+    return Response.json({
+      source,
+      message: {
+        id: message.id,
+        role: message.role,
+        text: message.text,
+        tools: message.tools,
+        time: message.time,
+      },
+    });
+  });
+
+/** The owner's memory reads and versioned edits; only opening a source needs OpenCode. */
+const memoryRoute = async (
+  db: Db,
+  request: Request,
+  path: string[],
+  layer: Layer.Layer<OpenCode, OpenCodeError>,
+) => {
   const [, name = "", , kind, rawID, ...extra] = path;
   let decoded: string;
   try {
@@ -1036,6 +1066,36 @@ const memoryRoute = async (db: Db, request: Request, path: string[]) => {
   if (!dot) return error(404, `There's no dot named "${name}".`);
   const { method } = request;
   if (kind === "supervisions") return supervisionRoute(db, dot.name, method, rawID, extra);
+  if (kind === "notes" && rawID === "search" && extra.length === 0 && method === "GET") {
+    const query = new URL(request.url).searchParams;
+    if (
+      [...query.keys()].some(
+        (key) => !["q", "limit"].includes(key) || query.getAll(key).length !== 1,
+      )
+    )
+      return error(400, "Use ?q=<keywords>&limit=<1 to 50>.");
+    const search = parseNoteSearch(
+      query.get("q") ?? "",
+      query.has("limit") ? Number(query.get("limit")) : undefined,
+    );
+    if ("invalid" in search) return error(400, search.invalid);
+    return Response.json({ results: searchNotes(db, dot.name, search.query, search.limit) });
+  }
+  if (
+    kind === "notes" &&
+    rawID &&
+    positive.test(rawID) &&
+    Number.isSafeInteger(Number(rawID)) &&
+    extra.length === 1 &&
+    extra[0] === "source" &&
+    method === "GET"
+  )
+    return Effect.runPromise(
+      noteSource(db, dot, Number(rawID)).pipe(
+        Effect.provide(layer),
+        Effect.catch((failure) => Effect.succeed(error(503, failure.message))),
+      ),
+    );
   if (extra.length) return error(404, "Not found");
   if (kind === undefined)
     return method === "GET"
@@ -1495,7 +1555,7 @@ export const api = (
         return error(500, "Couldn't read or save the dot's instructions. Nothing was changed.");
       });
     if (path[0] === "dots" && path[2] === "memory")
-      return memoryRoute(db, request, path).catch((cause) => {
+      return memoryRoute(db, request, path, sharedLayer).catch((cause) => {
         console.error(`Memory: ${cause instanceof Error ? cause.message : String(cause)}`);
         return error(500, "Couldn't read or save the dot's memory.");
       });

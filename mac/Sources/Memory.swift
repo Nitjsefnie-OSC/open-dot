@@ -102,6 +102,11 @@ struct MemoryState {
   var drafts: [MemoryKey: MemoryDraft] = [:]
   var rejected: [MemoryKey: MemoryDraft] = [:]
   var noteDraft = ""
+  var noteQuery = ""
+  var noteMatches: [NoteMatch]?
+  var noteSearchError: String?
+  private(set) var searchingNotes = false
+  private var searches = 0
   /// Supervisions being approved or ended.
   var supervising: Set<Int> = []
   private(set) var saving: Set<MemoryKey> = []
@@ -127,6 +132,30 @@ struct MemoryState {
 
   func isCurrent(_ read: Read) -> Bool { read.number == reads }
 
+  mutating func startSearch() -> Read {
+    searches += 1
+    searchingNotes = true
+    noteSearchError = nil
+    return Read(number: searches, writes: writes)
+  }
+
+  mutating func finishSearch(_ read: Read, query: String, result: Result<[NoteMatch], MemoryInvalid>) {
+    guard read.number == searches, read.writes == writes, query == noteQuery, saving.isEmpty, !adding else { return }
+    searchingNotes = false
+    switch result {
+    case .success(let matches): noteMatches = query.isEmpty ? nil : matches
+    case .failure(let failure):
+      noteMatches = nil
+      noteSearchError = failure.message
+    }
+  }
+
+  private mutating func invalidateSearch() {
+    searches += 1
+    searchingNotes = false
+    noteMatches = nil
+  }
+
   /// Shows a read, unless a newer read began or any change began or ended since it did.
   mutating func apply(_ read: Read, _ memory: Memory) -> Bool {
     guard isCurrent(read), read.writes == writes, saving.isEmpty, !adding else { return false }
@@ -143,6 +172,7 @@ struct MemoryState {
   /// Marks the item as saving. False if it already is, so a second click sends nothing.
   mutating func begin(_ key: MemoryKey) -> Bool {
     guard saving.insert(key).inserted else { return false }
+    invalidateSearch()
     writes += 1
     errors[key] = nil
     return true
@@ -180,6 +210,7 @@ struct MemoryState {
 
   mutating func beginAdd() -> Bool {
     guard !adding else { return false }
+    invalidateSearch()
     adding = true
     writes += 1
     notice = nil
@@ -261,7 +292,24 @@ struct MemoryView: View {
         }
         if let memory = state?.memory {
           section("Notes") {
-            ForEach(memory.notes) { MemoryRow(store: store, dot: name, item: .note($0)) }
+            noteSearch
+            if state?.noteQuery.isEmpty == false {
+              if state?.searchingNotes == true {
+                Text("Searching…").font(.caption).foregroundStyle(.secondary)
+              } else if let error = state?.noteSearchError {
+                Text(verbatim: error).font(.caption2).foregroundStyle(.red)
+              } else if let matches = state?.noteMatches {
+                if matches.isEmpty { Text("No matching notes").font(.caption).foregroundStyle(.secondary) }
+                ForEach(matches) { match in
+                  if let note = memory.notes.first(where: { $0.id == match.id }) {
+                    MemoryRow(store: store, dot: name, item: .note(note), excerpt: match.snippet)
+                  }
+                }
+                if matches.count == 50 { Text("Showing up to 50 matches; narrow the keywords for more.").font(.caption2).foregroundStyle(.secondary) }
+              }
+            } else {
+              ForEach(memory.notes) { MemoryRow(store: store, dot: name, item: .note($0)) }
+            }
             addNote
           }
           section("Responsibilities") {
@@ -304,6 +352,25 @@ struct MemoryView: View {
 
   private var empty: some View { Text("None").font(.caption).foregroundStyle(.tertiary) }
 
+  private var noteSearch: some View {
+    let query = Binding { store.memories[name]?.noteQuery ?? "" } set: {
+      store.memories[name, default: MemoryState()].noteQuery = $0
+      store.searchNotes(name)
+    }
+    return HStack {
+      Image(systemName: "magnifyingglass").foregroundStyle(.secondary)
+      TextField("Search notes", text: query)
+        .textFieldStyle(.plain)
+        .accessibilityIdentifier("memory-note-search")
+      if !query.wrappedValue.isEmpty {
+        Button("Clear") { query.wrappedValue = "" }
+          .buttonStyle(.plain).font(.caption2)
+      }
+    }
+    .padding(8)
+    .background(RoundedRectangle(cornerRadius: 10).fill(.white.opacity(0.05)))
+  }
+
   private func section<Content: View>(_ title: String, @ViewBuilder _ content: () -> Content) -> some View {
     VStack(alignment: .leading, spacing: 6) {
       Text(title).font(.caption.weight(.semibold)).foregroundStyle(.secondary)
@@ -336,6 +403,7 @@ struct MemoryRow: View {
   let store: Store
   let dot: String
   let item: MemoryItem
+  var excerpt: String? = nil
 
   var body: some View {
     let key = item.key
@@ -387,7 +455,9 @@ struct MemoryRow: View {
   @ViewBuilder private var content: some View {
     switch item {
     case .note(let note):
-      Text(verbatim: note.text).font(.callout).textSelection(.enabled)
+      Text(verbatim: excerpt ?? note.text).font(.callout).textSelection(.enabled)
+      Text("Note #\(note.id)").font(.caption2).foregroundStyle(.tertiary)
+      NoteSourceView(store: store, dot: dot, id: note.id, source: note.source)
     case .responsibility(let responsibility):
       HStack(alignment: .firstTextBaseline) {
         Text(verbatim: responsibility.goal).font(.callout.weight(.medium))
@@ -499,6 +569,47 @@ struct MemoryRow: View {
     }
     guard runAlert(alert, store) == .alertSecondButtonReturn else { return }
     store.removeMemory(dot, item)
+  }
+}
+
+struct NoteSourceView: View {
+  let store: Store
+  let dot: String
+  let id: Int
+  let source: NoteSource?
+  @State private var evidence: NoteEvidence?
+  @State private var failure: String?
+  @State private var loading = false
+
+  var body: some View {
+    VStack(alignment: .leading, spacing: 4) {
+      if source?.state == "known" {
+        Button(loading ? "Opening source…" : "Open source") {
+          loading = true
+          evidence = nil
+          failure = nil
+          Task {
+            switch await store.noteSource(dot, id: id) {
+            case .success(let source): evidence = source
+            case .failure(let error): failure = "Source unavailable: \(error.message)"
+            }
+            loading = false
+          }
+        }
+        .buttonStyle(.plain).font(.caption2.weight(.semibold)).disabled(loading)
+        .accessibilityIdentifier("memory-note-source-\(id)")
+      } else {
+        Text("Source unknown").font(.caption2).foregroundStyle(.tertiary)
+      }
+      if let failure { Text(verbatim: failure).font(.caption2).foregroundStyle(.red) }
+      if let evidence {
+        Text(verbatim: "\(evidence.source.sessionID ?? "") · \(evidence.message.id) · \(evidence.message.role) · \(Date(timeIntervalSince1970: evidence.message.time / 1000).formatted())")
+          .font(.caption2).foregroundStyle(.secondary).textSelection(.enabled)
+        Text(verbatim: evidence.message.text.isEmpty ? "Tools: \(evidence.message.tools.joined(separator: ", "))" : evidence.message.text)
+          .font(.caption).textSelection(.enabled)
+        Button("Close source") { self.evidence = nil }.buttonStyle(.plain).font(.caption2)
+      }
+    }
   }
 }
 

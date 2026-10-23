@@ -829,6 +829,7 @@ test("0020 adds memory versions that legacy writers still advance, and keeps eve
       { name: "updated_at", notnull: 0, dflt_value: null },
       { name: "version", notnull: 1, dflt_value: "1" },
       { name: "updated_by", notnull: 1, dflt_value: "'dot'" },
+      { name: "source", notnull: 1, dflt_value: '\'{"state":"unknown"}\'' },
     ]);
     expect(added("reminders").map((column) => column.name)).toEqual([
       "updated_at",
@@ -1066,7 +1067,7 @@ test("0022 adds supervisions and a nullable outbox.supervision, and keeps every 
       const after = db.$client.query(`pragma table_info("${name}")`).all();
       expect(after.slice(0, columns.get(name)?.length)).toEqual(columns.get(name) ?? []);
       if (name !== "outbox" && !polished.includes(name))
-        expect(after).toHaveLength(columns.get(name)?.length ?? 0);
+        expect(after).toHaveLength((columns.get(name)?.length ?? 0) + (name === "notes" ? 1 : 0));
     }
     expect(
       db.$client.query(`pragma table_info("outbox")`).all().slice(columns.get("outbox")?.length),
@@ -1140,7 +1141,12 @@ test("0023 adds only requests, one row per session, kind and request, and keeps 
     expect(tableNames(db.$client)).toEqual([...tables, "requests"].toSorted());
     for (const name of tables) {
       const after = db.$client.query(`pragma table_info("${name}")`).all();
-      if (polished.includes(name))
+      if (name === "notes") {
+        expect(after.slice(0, columns.get(name)?.length)).toEqual(columns.get(name) ?? []);
+        expect(after.slice(columns.get(name)?.length)).toMatchObject([
+          { name: "source", notnull: 1, dflt_value: '\'{"state":"unknown"}\'' },
+        ]);
+      } else if (polished.includes(name))
         expect(after.slice(0, columns.get(name)?.length)).toEqual(columns.get(name) ?? []);
       else expect(after).toEqual(columns.get(name) ?? []);
     }
@@ -1219,7 +1225,9 @@ test("0024 appends nullable Slack polish columns, keeps every 0023 row, and leav
           ? ["prompts", "manifest_version", "update_state", "update_at", "update_note"]
           : name === "slack_events"
             ? ["status_at", "stream", "stream_id", "stream_ts", "stream_text", "title"]
-            : [],
+            : name === "notes"
+              ? ["source"]
+              : [],
       );
     }
     expect(tables.map((name) => [name, rows(db.$client, name)])).toEqual(before);
