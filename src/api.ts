@@ -1029,7 +1029,7 @@ const noteSource = (db: Db, dot: Dot, id: number) =>
     if (!note) return error(404, "There's no such note for this dot.");
     const { source } = note;
     if (source.state === "unknown") return error(404, "This note's source is unknown.");
-    if (dot.sessionState !== "ready" || source.sessionID !== dot.sessionID)
+    if (rebound(db, dot) || source.sessionID !== dot.sessionID)
       return error(409, "The source belongs to a conversation this dot is no longer bound to.");
     const message = yield* (yield* OpenCode).message(source);
     if (rebound(db, dot)) return error(409, "The dot's conversation changed. Refresh.");

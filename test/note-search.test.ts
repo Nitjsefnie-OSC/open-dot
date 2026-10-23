@@ -26,6 +26,7 @@ let history: { id: string; type: string; text: string; time: { created: number }
 let contextFailure: boolean;
 let onContext: () => void;
 let onMessage: () => void;
+let onConnect: () => void;
 let messageFailure: boolean;
 let messages: Map<string, Entry>;
 let reads: string[];
@@ -50,6 +51,7 @@ beforeEach(() => {
   messageFailure = false;
   onContext = () => {};
   onMessage = () => {};
+  onConnect = () => {};
   history = [{ id: "msg_invoking", type: "assistant", text: "", time: { created: 2 } }];
   messages = new Map();
   for (const name of ["jojo", "polnareff"]) {
@@ -71,21 +73,24 @@ afterEach(async () => {
 });
 
 const layer = () =>
-  Layer.succeed(
+  Layer.effect(
     OpenCode,
-    strict(
-      {
-        message: ({ sessionID, messageID }: { sessionID: string; messageID: string }) =>
-          Effect.suspend(() => {
-            reads.push(`${sessionID}/${messageID}`);
-            onMessage();
-            return messageFailure
-              ? Effect.fail(new OpenCodeError({ message: "Public history unavailable" }))
-              : Effect.succeed(messages.get(`${sessionID}/${messageID}`));
-          }),
-      },
-      "client",
-    ) as unknown as OpenCode["Service"],
+    Effect.sync(() => {
+      onConnect();
+      return strict(
+        {
+          message: ({ sessionID, messageID }: { sessionID: string; messageID: string }) =>
+            Effect.suspend(() => {
+              reads.push(`${sessionID}/${messageID}`);
+              onMessage();
+              return messageFailure
+                ? Effect.fail(new OpenCodeError({ message: "Public history unavailable" }))
+                : Effect.succeed(messages.get(`${sessionID}/${messageID}`));
+            }),
+        },
+        "client",
+      ) as unknown as OpenCode["Service"];
+    }),
   );
 
 const request = (path: string, method = "GET", body?: unknown, token = "owner") =>
@@ -467,4 +472,17 @@ test("source reads enforce the current session before and after lookup and note 
     db.delete(notes).where(eq(notes.id, item.id)).run();
   };
   expect((await request(path)).status).toBe(404);
+});
+
+test("source reads refuse rebinding during client connection before reading any message", async () => {
+  const loaded = await load();
+  await loaded.call("dot_note", { text: "Connection boundary" });
+  const note = db.select().from(notes).get();
+  assert(note);
+  reads = [];
+  onConnect = () => {
+    db.update(dots).set({ sessionID: "ses_new" }).where(eq(dots.name, "jojo")).run();
+  };
+  expect((await request(`jojo/memory/notes/${note.id}/source`)).status).toBe(409);
+  expect(reads).toEqual([]);
 });
