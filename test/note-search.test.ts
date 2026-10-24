@@ -1,5 +1,5 @@
 import { Database } from "bun:sqlite";
-import { afterEach, beforeEach, expect, test } from "bun:test";
+import { afterEach, beforeEach, expect, spyOn, test } from "bun:test";
 import assert from "node:assert/strict";
 import { cpSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -212,9 +212,17 @@ test("search snippets retain matches after Unicode lowercase expansion", async (
   expect(result.results[0]?.snippet.length).toBeLessThanOrEqual(240);
 });
 
+test("search snippets bound long tails and mark truncated text", async () => {
+  const item = insert("needle" + " tail".repeat(100));
+  const result = await search("needle");
+  expect(result.results.map((row) => row.id)).toEqual([item.id]);
+  expect(result.results[0]?.snippet).toContain("needle");
+  expect(result.results[0]?.snippet.length).toBeLessThanOrEqual(240);
+  expect(result.results[0]?.snippet.endsWith("…")).toBe(true);
+});
+
 test("search API validates bounds and authentication without writing anything", async () => {
   insert("find me");
-  const before = db.$client.query("select total_changes() as n").get();
   for (const query of [
     "q=x&limit=0",
     "q=x&limit=51",
@@ -229,11 +237,14 @@ test("search API validates bounds and authentication without writing anything", 
     401,
   );
   expect((await request("nobody/memory/notes/search?q=find")).status).toBe(404);
+  const before = db.$client.query("select total_changes() as n").get();
   expect((await search("find")).results).toHaveLength(1);
+  expect(db.$client.query("select total_changes() as n").get()).toEqual(before);
   for (let index = 0; index < 55; index++) insert(`find ${index}`, index + 2);
+  const afterSeeding = db.$client.query("select total_changes() as n").get();
   expect((await search("find")).results).toHaveLength(10);
   expect((await search("find", "&limit=50")).results).toHaveLength(50);
-  const afterSeeding = db.$client.query("select total_changes() as n").get();
+  expect(db.$client.query("select total_changes() as n").get()).toEqual(afterSeeding);
   expect(
     (
       await request("jojo/memory/notes", "POST", {
@@ -243,23 +254,25 @@ test("search API validates bounds and authentication without writing anything", 
     ).status,
   ).toBe(400);
   expect(db.$client.query("select total_changes() as n").get()).toEqual(afterSeeding);
-  expect(afterSeeding).not.toEqual(before);
 });
 
 test("search reflects owner edits, versions and deletion immediately, with no agent turn", async () => {
   const old = insert("old decision", 1);
   const kept = insert("kept decision", 2);
   expect((await search("old")).results.map((row) => row.id)).toEqual([old.id]);
+  const clock = spyOn(Date, "now").mockReturnValue(5000);
   const edit = await request(`jojo/memory/notes/${old.id}`, "PATCH", {
     version: 1,
     text: "new decision",
-  });
+  }).finally(() => clock.mockRestore());
   expect(edit.status).toBe(200);
   expect(await edit.json()).toMatchObject({
-    note: { version: 2, updatedBy: "owner", source: { state: "unknown" } },
+    note: { version: 2, updatedAt: 5000, updatedBy: "owner", source: { state: "unknown" } },
   });
   expect((await search("old")).results).toEqual([]);
-  expect((await search("decision")).results.map((row) => row.id)).toEqual([old.id, kept.id]);
+  const changed = await search("decision");
+  expect(changed.results.map((row) => row.id)).toEqual([old.id, kept.id]);
+  expect(changed.results[0]?.updatedAt).toBe(5000);
   expect(
     (await request(`jojo/memory/notes/${old.id}`, "PATCH", { version: 1, text: "stale" })).status,
   ).toBe(409);
@@ -438,10 +451,11 @@ test("source reads return public message data and clearly distinguish unknown, d
   messageFailure = true;
   expect((await request(path)).status).toBe(503);
   messageFailure = false;
+  expect(db.$client.query("select total_changes() as n").get()).toEqual(before);
   const unknown = insert("No source");
-  expect((await request(`jojo/memory/notes/${unknown.id}/source`)).status).toBe(404);
-  expect(db.$client.query("select total_changes() as n").get()).not.toEqual(before);
   const afterInsert = db.$client.query("select total_changes() as n").get();
+  expect((await request(`jojo/memory/notes/${unknown.id}/source`)).status).toBe(404);
+  expect(db.$client.query("select total_changes() as n").get()).toEqual(afterInsert);
   expect((await request(`polnareff/memory/notes/${item.id}/source`)).status).toBe(404);
   expect((await request(path, "GET", undefined, "wrong")).status).toBe(401);
   expect(db.$client.query("select total_changes() as n").get()).toEqual(afterInsert);
