@@ -204,6 +204,14 @@ test("empty and no-match searches stay empty with a live matching control; punct
   expect((await search("sqlite")).results).toHaveLength(1);
 });
 
+test("search snippets retain matches after Unicode lowercase expansion", async () => {
+  const item = insert("İ".repeat(300) + "needle");
+  const result = await search("needle");
+  expect(result.results.map((row) => row.id)).toEqual([item.id]);
+  expect(result.results[0]?.snippet).toContain("needle");
+  expect(result.results[0]?.snippet.length).toBeLessThanOrEqual(240);
+});
+
 test("search API validates bounds and authentication without writing anything", async () => {
   insert("find me");
   const before = db.$client.query("select total_changes() as n").get();

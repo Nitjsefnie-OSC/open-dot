@@ -56,7 +56,16 @@ export function searchNotes(db: Db, dot: string, query: string, limit: number) {
     .filter((row) => terms.every((term) => row.text.toLowerCase().includes(term)))
     .slice(0, limit)
     .map((row) => {
-      const start = Math.max(0, row.text.toLowerCase().indexOf(first) - 40);
+      // Lowercasing can expand a character, so translate the match back to original offsets.
+      let remaining = row.text.toLowerCase().indexOf(first);
+      let match = 0;
+      for (const character of row.text) {
+        const length = character.toLowerCase().length;
+        if (remaining < length) break;
+        remaining -= length;
+        match += character.length;
+      }
+      const start = Math.max(0, match - 40);
       const excerpt = row.text.slice(start, start + 238);
       return {
         id: row.id,
