@@ -221,6 +221,37 @@ test("search snippets bound long tails and mark truncated text", async () => {
   expect(result.results[0]?.snippet.endsWith("…")).toBe(true);
 });
 
+for (const [boundary, text] of [
+  ["end", "needle" + "a".repeat(231) + "😀tail"],
+  ["start", "x".repeat(50) + "😀" + "a".repeat(39) + "needle"],
+] as const)
+  test(`search snippets preserve Unicode scalars at excerpt ${boundary}`, async () => {
+    const item = insert(text);
+    const result = await search("needle");
+    expect(result.results.map((row) => row.id)).toEqual([item.id]);
+    expect(result.results[0]?.snippet.isWellFormed()).toBe(true);
+    expect(result.results[0]?.snippet).toContain("needle");
+    expect(result.results[0]?.snippet.length).toBeLessThanOrEqual(240);
+  });
+
+for (const [kind, prefix] of [
+  ["expanded", "İ".repeat(300)],
+  ["astral", "😀".repeat(300)],
+  ["ASCII", "x".repeat(300)],
+] as const)
+  test(`search snippets intersect ${kind} prefixes with long tails`, async () => {
+    const item = insert(prefix + "needle" + " tail".repeat(100));
+    for (const query of ["needle", "needle tail", "tail needle"]) {
+      const result = await search(query);
+      expect(result.results.map((row) => row.id)).toEqual([item.id]);
+      expect(result.results[0]?.snippet.isWellFormed()).toBe(true);
+      expect(result.results[0]?.snippet).toContain("needle");
+      expect(result.results[0]?.snippet.length).toBeLessThanOrEqual(240);
+      expect(result.results[0]?.snippet.startsWith("…")).toBe(true);
+      expect(result.results[0]?.snippet.endsWith("…")).toBe(true);
+    }
+  });
+
 test("search API validates bounds and authentication without writing anything", async () => {
   insert("find me");
   for (const query of [

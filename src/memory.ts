@@ -65,8 +65,12 @@ export function searchNotes(db: Db, dot: string, query: string, limit: number) {
         remaining -= length;
         match += character.length;
       }
-      const start = Math.max(0, match - 40);
-      const excerpt = row.text.slice(start, start + 238);
+      let start = Math.max(0, match - 40);
+      // Round context outward and the end inward rather than splitting a surrogate pair.
+      if ((row.text.codePointAt(start - 1) ?? 0) > 0xffff) start--;
+      let end = Math.min(row.text.length, start + 238);
+      if ((row.text.codePointAt(end - 1) ?? 0) > 0xffff) end--;
+      const excerpt = row.text.slice(start, end);
       return {
         id: row.id,
         snippet: `${start ? "…" : ""}${excerpt}${start + excerpt.length < row.text.length ? "…" : ""}`,
