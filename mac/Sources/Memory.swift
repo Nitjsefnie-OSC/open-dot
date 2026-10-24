@@ -102,7 +102,14 @@ struct MemoryState {
   var drafts: [MemoryKey: MemoryDraft] = [:]
   var rejected: [MemoryKey: MemoryDraft] = [:]
   var noteDraft = ""
-  var noteQuery = ""
+  var noteQuery = "" {
+    didSet {
+      if noteQuery != oldValue {
+        noteMatches = nil
+        noteSearchError = nil
+      }
+    }
+  }
   var noteMatches: [NoteMatch]?
   var noteSearchError: String?
   private(set) var searchingNotes = false
@@ -145,15 +152,14 @@ struct MemoryState {
     switch result {
     case .success(let matches): noteMatches = query.isEmpty ? nil : matches
     case .failure(let failure):
-      noteMatches = nil
       noteSearchError = failure.message
     }
   }
 
   private mutating func invalidateSearch() {
+    // Keep same-query rows mounted during writes; their source evidence lives in the row.
     searches += 1
     searchingNotes = false
-    noteMatches = nil
   }
 
   /// Shows a read, unless a newer read began or any change began or ended since it did.
@@ -296,9 +302,11 @@ struct MemoryView: View {
             if state?.noteQuery.isEmpty == false {
               if state?.searchingNotes == true {
                 Text("Searching…").font(.caption).foregroundStyle(.secondary)
-              } else if let error = state?.noteSearchError {
+              }
+              if let error = state?.noteSearchError {
                 Text(verbatim: error).font(.caption2).foregroundStyle(.red)
-              } else if let matches = state?.noteMatches {
+              }
+              if let matches = state?.noteMatches {
                 if matches.isEmpty { Text("No matching notes").font(.caption).foregroundStyle(.secondary) }
                 ForEach(matches) { match in
                   if let note = memory.notes.first(where: { $0.id == match.id }) {
